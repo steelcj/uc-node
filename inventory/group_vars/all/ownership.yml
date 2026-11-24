@@ -1,5 +1,5 @@
 ---
-# group_vars/all/ownership.yml
+# inventory/group_vars/all/ownership.yml
 #
 # How uc-raw-node marks a node as its own, so it never changes a node it did
 # not build or adopt.

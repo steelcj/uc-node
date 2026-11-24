@@ -1,5 +1,5 @@
 ---
-# group_vars/all/node.yml
+# inventory/group_vars/all/node.yml
 #
 # Defaults for the node definition.
 #

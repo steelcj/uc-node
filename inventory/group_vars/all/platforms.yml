@@ -1,5 +1,5 @@
 ---
-# group_vars/all/platforms.yml
+# inventory/group_vars/all/platforms.yml
 #
 # The platforms uc-node can build on, and the node definition fields each
 # one requires. Data only: build.yml checks a node definition against it

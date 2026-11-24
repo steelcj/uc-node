@@ -26,7 +26,7 @@ import yaml
 
 SECRETS_DIR = Path.home() / ".secrets" / "uc-raw"
 DEFAULTS_FILE = SECRETS_DIR / "defaults.yml"
-GROUP_VARS = Path(__file__).resolve().parent.parent / "group_vars" / "all"
+GROUP_VARS = Path(__file__).resolve().parent.parent / "inventory" / "group_vars" / "all"
 LABELS_FILE = GROUP_VARS / "labels.yml"
 PLATFORMS_FILE = GROUP_VARS / "platforms.yml"
 
@@ -77,8 +77,8 @@ def load_defaults():
 
 
 def load_group_var(path, name, kind):
-    """One value from a file in group_vars/all/, which must be a non-empty
-    list or mapping."""
+    """One value from a file in inventory/group_vars/all/, which must be a
+    non-empty list or mapping."""
     with path.open() as handle:
         value = (yaml.safe_load(handle) or {}).get(name)
     if not isinstance(value, kind) or not value:
@@ -126,7 +126,7 @@ def check_address(value):
 
 
 # The questions for fields a platform requires, by field name, as listed in
-# group_vars/all/platforms.yml.
+# inventory/group_vars/all/platforms.yml.
 PLATFORM_QUESTIONS = {
     "node_address": ("Node address", check_address),
 }

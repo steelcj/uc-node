@@ -5,9 +5,18 @@
   gather_facts: false
 
   tasks:
-    # group_vars/all/hostname.yml sets hostname from node_hostname, so a
-    # different value can only come from a node definition written before
-    # client_domain replaced hostname.
+    # Ansible loads inventory/group_vars/ only with this repository's
+    # inventory, which ansible.cfg names when run from this directory.
+    - name: Check that the repository's configuration is loaded
+      ansible.builtin.assert:
+        that:
+          - platforms is defined
+        fail_msg: "The configuration in inventory/group_vars/all/ is not loaded. Run ansible-playbook from the repository directory, so it reads ansible.cfg and uses the repository's inventory."
+        quiet: true
+
+    # inventory/group_vars/all/hostname.yml sets hostname from
+    # node_hostname, so a different value can only come from a node
+    # definition written before client_domain replaced hostname.
     - name: Refuse a node definition that still has hostname
       ansible.builtin.assert:
         that:

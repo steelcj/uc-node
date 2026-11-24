@@ -6,11 +6,6 @@
 # carry a when condition, so every play here keeps its tasks in a block with
 # when: platform == 'incus'. The condition is evaluated after group_vars are
 # loaded, so the platform default in node.yml applies.
-#
-# While it runs an imported playbook's plays, Ansible loads group_vars from
-# the imported playbook's own directory, not from the directory of
-# build.yml. platforms/incus/group_vars is a link to ../../group_vars, so
-# these plays see group_vars/all/. Every platform directory needs that link.
 
 - name: Create the node on Incus
   hosts: localhost

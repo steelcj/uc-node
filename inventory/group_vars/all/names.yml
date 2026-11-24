@@ -1,5 +1,5 @@
 ---
-# group_vars/all/names.yml
+# inventory/group_vars/all/names.yml
 #
 # Names calculated from the node definition's client_domain and node_label.
 #

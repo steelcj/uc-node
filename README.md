@@ -14,7 +14,7 @@ The raw node controller. For now it:
 | :-- | :-- |
 | `ansible.cfg` | Ansible settings for this controller, read when you run from this directory |
 | `inventory/localhost.yml` | The controller host itself, where the Incus client runs |
-| `group_vars/all/` | Configuration as data, one file per subject: `incus.yml` holds the image, `node.yml` the defaults for the node definition's optional fields, and one file per role, named after it |
+| `inventory/group_vars/all/` | Configuration as data, one file per subject: `incus.yml` holds the image, `node.yml` the defaults for the node definition's optional fields, and one file per role, named after it |
 | `requirements.yml` | Collections and roles, each pinned to a version |
 | `build.yml` | The playbook |
 | `scripts/new-node` | Writes a node definition to `~/.secrets/uc-raw/` |

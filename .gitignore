@@ -1,4 +1,5 @@
-# Release artifacts, built by scripts/publish-release.py.
-dist/
-
+*.retry
+.ansible/
 __pycache__/
+.ruff_cache/
+dist/

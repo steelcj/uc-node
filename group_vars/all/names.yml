@@ -1,0 +1,14 @@
+---
+# group_vars/all/names.yml
+#
+# Names calculated from the node definition's client_domain and node_label.
+#
+# These are not defaults. Do not set them in a node definition: a value
+# passed with -e would override the calculation and break the naming rule.
+
+# The fully qualified domain name, for example prod.imata.ca. It is the
+# node's name in the inventory, and the FQDN set on the node.
+node_fqdn: "{{ node_label }}.{{ client_domain }}"
+
+# The leftmost label of node_fqdn, for example prod, set as the hostname.
+node_hostname: "{{ node_label }}"

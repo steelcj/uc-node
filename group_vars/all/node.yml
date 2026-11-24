@@ -1,0 +1,24 @@
+---
+# group_vars/all/node.yml
+#
+# Defaults for the node definition.
+#
+# Every value here is used only when the node definition does not set it.
+# The node definition is passed to build.yml with -e @<file>, and values
+# passed with -e always override group_vars. For example, a node definition
+# with platform: vps builds a VPS, whatever this file says.
+#
+# For the names calculated from client_domain and node_label, see names.yml.
+
+# Where the node runs: incus or vps.
+platform: incus
+
+# The node's label: raw, dev, stage or prod.
+node_label: raw
+
+# The port SSH listens on.
+ssh_port: 22
+
+# Addresses or networks allowed to reach SSH. Empty means any. On a VPS,
+# include the controller's own public address, or the build locks itself out.
+ssh_sources: []

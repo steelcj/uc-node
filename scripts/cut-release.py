@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 #
 # source
+#   project: sat-doc-automa
 #   path: scripts/cut-release.py
 #
 """

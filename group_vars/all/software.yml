@@ -1,0 +1,7 @@
+---
+#
+# If package managed software is ever required
+#
+#software_packages:
+#  - name: openssh-server
+#  - name: foomuuri

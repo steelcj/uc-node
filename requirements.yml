@@ -1,0 +1,41 @@
+---
+# Install with: ansible-galaxy install -r requirements.yml
+collections:
+  # For the community.general.incus connection plugin, and needed by
+  # robertdebock.openssh.
+  - name: community.general
+    version: "14.0.1"
+  # Needed by robertdebock.users, for authorized_key.
+  - name: ansible.posix
+    version: "2.2.2"
+
+roles:
+  # Installs Python and sudo on the node, so Ansible modules can run.
+  - name: robertdebock.bootstrap
+    version: "7.3.1"
+  # Sets the hostname.
+  - name: robertdebock.hostname
+    version: "3.3.0"
+  # Makes Foomuuri installable on the RHEL family. Not used on Debian.
+  - name: robertdebock.epel
+    version: "4.3.1"
+# Installs packages from a list.
+#
+# Not required currently
+#
+#  - name: robertdebock.software
+#    version: "2.2.0"
+  # The root password, and the initial user with its hash, key and sudo group.
+  - name: robertdebock.users
+    version: "6.2.1"
+  # The Foomuuri firewall. No release yet, so pinned to a commit.
+  - name: steelcj.foomuuri
+    src: https://github.com/steelcj/ansible-role-foomuuri.git
+    scm: git
+    version: b62b02b5ee0c7dbf2bf2721aad46cf52ce60ebe3
+  # Key-only SSH, no root login, on ssh_port.
+  - name: robertdebock.openssh
+    version: "5.1.0"
+  # Reboots so the first-boot unit writes the confirmation.
+  - name: robertdebock.reboot
+    version: "3.4.1"

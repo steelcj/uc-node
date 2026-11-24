@@ -1,0 +1,14 @@
+---
+# Leave /etc/cron.allow alone: it is outside the raw node contract.
+users_cron_allow: false
+
+users:
+  - name: root
+    password: "{{ root_password_hash }}"
+  - name: "{{ initial_username }}"
+    password: "{{ initial_password_hash }}"
+    groups:
+      - "{{ 'wheel' if ansible_facts['os_family'] == 'RedHat' else 'sudo' }}"
+    authorized_keys:
+      - "{{ ssh_public_key }}"
+    exclusive_keys: true

@@ -1,0 +1,6 @@
+---
+# Key only, no root login, on the node definition's port.
+openssh_port: "{{ ssh_port }}"
+openssh_permit_root_login: "no"
+openssh_password_authentication: "no"
+openssh_challenge_response_authentication: "no"

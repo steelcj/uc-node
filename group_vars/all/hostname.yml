@@ -1,0 +1,4 @@
+---
+# robertdebock.hostname sets the hostname from the node definition's
+# hostname. The node is rebooted once, on purpose, in the Reboot play.
+hostname_reboot: false

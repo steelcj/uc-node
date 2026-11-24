@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 #
 # source
+#   project: sat-doc-automa
 #   path: scripts/publish-release.py
 #
 """
@@ -11,7 +12,8 @@ checksum file, and publish the artifacts through a provider backend.
 This script owns the publishing ceremony only. Cutting stays in
 cut-release.py (bump, changelog roll, commit, tag), and pushing stays a
 human act over whatever transport the maintainer trusts; this script
-runs strictly after both.
+runs strictly after both, per
+decision--publish-release-shared-script-with-provider-interface.
 
 Connectivity is two layers. Transport (git push, tags) is provider
 agnostic and this script uses it only for preflight, `git ls-remote` to
@@ -24,10 +26,10 @@ a small backend seam:
     publish(tag, files)  create the release, attach the artifacts
     release_url(tag)     where consumers will find them
 
-The seam stays honest to the narrowest backend: a release IS files
-at stable locations plus SHA256SUMS plus an optional signature,
-because that is all the narrowest backend (a plain directory) can
-express. Anything richer a provider offers is carried
+The seam obeys gold--interfaces-stay-honest-to-the-narrowest-backend:
+a release IS files at stable locations plus SHA256SUMS plus an optional
+signature, because that is all the narrowest backend (a plain
+directory) can express. Anything richer a provider offers is carried
 inside that provider's backend or not at all.
 
 Backends: `gh` (GitHub, auto-detected from the origin URL) and `dir`
@@ -155,8 +157,9 @@ def repo_name(url: str) -> str:
 # because the narrowest backend is a directory.
 
 class GhBackend:
-    """GitHub, through the gh CLI. Authentication is gh's own; this
-    script never touches a token."""
+    """GitHub, through the gh CLI, per
+    decision--gh-cli-for-release-asset-publishing. Authentication is
+    gh's own; this script never touches a token."""
 
     name = "gh"
 
@@ -211,7 +214,9 @@ class GhBackend:
 
 class DirBackend:
     """A plain directory: the narrowest backend, and therefore the one
-    that defines what a release is. Also the offline test fixture."""
+    that defines what a release is. Also the offline test fixture. The
+    SSH-to-controlled-host extension recorded in the decision record is
+    this backend with a remote destination."""
 
     name = "dir"
 
@@ -286,63 +291,35 @@ def changelog_section(version: str) -> str:
     return text[body_start: nxt if nxt != -1 else len(text)].strip() + "\n"
 
 
-def usable_signing_key() -> str:
-    """The fingerprint of the first secret key gpg can sign with, or "".
-
-    A secret key can be listed and still be unusable: expired, revoked,
-    disabled, without a signing capability, or a stub whose secret part
-    is elsewhere (a smartcard, another machine). Each secret key's
-    "sec" line in --with-colons output carries its validity (field 2),
-    its usable capabilities (field 12, an upper-case "S" means it can
-    sign, through itself or a subkey) and a stub marker (field 15, "#").
-    """
-    keys = subprocess.run(
-        ["gpg", "--list-secret-keys", "--with-colons"],
-        capture_output=True, text=True)
-    if keys.returncode != 0:
-        return ""
-    lines = [line.split(":") for line in keys.stdout.splitlines()]
-    for i, fields in enumerate(lines):
-        if fields[0] != "sec" or len(fields) < 15:
-            continue
-        validity, capabilities, token = fields[1], fields[11], fields[14]
-        if validity in ("e", "r", "d", "i") or "S" not in capabilities \
-                or token == "#":
-            continue
-        for following in lines[i + 1:]:
-            if following[0] == "fpr":
-                return following[9]
-            if following[0] == "sec":
-                break
-    return ""
-
-
 def maybe_sign(sums_path: Path, mode: str) -> Path:
-    """Detached armored signature of SHA256SUMS. Absence of gpg (or of
-    a usable secret key) must not block publishing; --sign makes
-    absence an error, --no-sign skips entirely. The key is
-    chosen explicitly, so an unusable default key cannot fail the
-    signature after a usable one was found."""
+    """Detached armored signature of SHA256SUMS. Per the ROADMAP rule,
+    absence of gpg (or of a secret key) must not block publishing;
+    --sign makes absence an error, --no-sign skips entirely."""
     if mode == "never":
         return None
-    key = usable_signing_key() if shutil.which("gpg") else ""
-    if not key:
+    have_gpg = shutil.which("gpg") is not None
+    have_key = False
+    if have_gpg:
+        keys = subprocess.run(
+            ["gpg", "--list-secret-keys", "--with-colons"],
+            capture_output=True, text=True)
+        have_key = keys.returncode == 0 and "sec:" in keys.stdout
+    if not (have_gpg and have_key):
         if mode == "require":
             fail("--sign given but no usable gpg secret key is "
-                 "available (none that is unexpired, unrevoked, able to "
-                 "sign and present on this machine).")
-        log("gpg or a usable secret key is unavailable; publishing "
-            "unsigned (allowed, never blocking).")
+                 "available.")
+        log("gpg or a secret key is unavailable; publishing unsigned "
+            "(allowed, never blocking).")
         return None
     sig = sums_path.with_suffix(sums_path.suffix + ".asc")
     sig.unlink(missing_ok=True)
     result = subprocess.run(
         ["gpg", "--batch", "--yes", "--armor", "--detach-sign",
-         "--local-user", key, "--output", str(sig), str(sums_path)],
+         "--output", str(sig), str(sums_path)],
         capture_output=True, text=True)
     if result.returncode != 0:
         fail("gpg signing failed:\n  " + result.stderr.strip())
-    log(f"signed: {sig.name}, with key {key[-16:]}")
+    log(f"signed: {sig.name}")
     return sig
 
 

@@ -1,0 +1,3 @@
+---
+foomuuri_ssh_port: "{{ ssh_port }}"
+foomuuri_ssh_sources: "{{ ssh_sources }}"

@@ -1,0 +1,3 @@
+---
+# The build reboots every time, on purpose.
+reboot_always: true

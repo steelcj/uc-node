@@ -8,9 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-23
+
 ### Recreated Repository
 
 Copied remaining requirements from old repo
+
+	modified:   CHANGELOG.md
+	modified:   README.md
+	modified:   ROADMAP.md
+	new file:   ansible.cfg
+	new file:   build.yml
+	new file:   en/docs/guides/1-setup-the-defaults-for-new-nodes.md
+	new file:   en/docs/guides/2-build-and-check-a-raw-node.md
+	new file:   en/docs/guides/add-a-new-platform-to-the-node-creation-controller.md
+	new file:   en/docs/guides/add-a-new-platform.md
+	new file:   en/docs/guides/setup-ex2-vps-node.md
+	modified:   scripts/bump-version.py
+	modified:   scripts/cut-release.py
+	modified:   scripts/publish-release.py
+
 
 ### Additions to support VPS and related issues
 

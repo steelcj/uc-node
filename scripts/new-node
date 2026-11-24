@@ -146,9 +146,19 @@ def check_user(value):
     return value
 
 
+# The .pub file each key line was read from, to find its private key.
+KEY_FILES = {}
+
+
+def key_body(line):
+    """The type and base64 of a key line, without its comment."""
+    return tuple(line.split()[:2])
+
+
 def check_key(value):
     """Accept a key line, or a path to a file holding one, and return the key line."""
     value = value.strip()
+    path = None
     if not value.startswith(KEY_TYPES):
         path = Path(value).expanduser()
         if not path.is_file():
@@ -156,6 +166,8 @@ def check_key(value):
         lines = path.read_text().strip().splitlines()
         value = lines[0].strip() if lines else ""
     no_quote_or_newline(value)
+    if path is not None:
+        KEY_FILES[key_body(value)] = path
     result = subprocess.run(
         ["ssh-keygen", "-l", "-f", "/dev/stdin"],
         input=value + "\n",
@@ -387,6 +399,37 @@ def write(path, data):
         raise
 
 
+def private_key_path(key_line):
+    """The private key that goes with the public key: the .pub file it was
+    read from, or the matching .pub file in ~/.ssh, without .pub. A
+    placeholder if neither is found."""
+    body = key_body(key_line)
+    candidates = [KEY_FILES[body]] if body in KEY_FILES else []
+    candidates += sorted((Path.home() / ".ssh").glob("*.pub"))
+    for public in candidates:
+        try:
+            lines = public.read_text().strip().splitlines()
+        except OSError:
+            continue
+        if lines and key_body(lines[0]) == body and public.suffix == ".pub":
+            return show(public.with_suffix(""))
+    return "<path to the private key of ssh_public_key>"
+
+
+def ssh_config_block(values):
+    """The ~/.ssh/config entry the build needs for an ssh node. Ansible
+    connects to node_address, so the Host line is the address: an alias
+    with HostName does not match."""
+    return "\n".join([
+        f"# uc-node: {values['node_label']}.{values['client_domain']}",
+        f"Host {values['node_address']}",
+        f"    IdentityFile {private_key_path(values['ssh_public_key'])}",
+        "    IdentitiesOnly yes",
+        "    # Optional, only for manual ssh/scp; the build passes the user itself",
+        f"    User {values['initial_user']}",
+    ])
+
+
 def main():
     if len(sys.argv) > 1:
         print(__doc__.strip())
@@ -400,6 +443,12 @@ def main():
         return 1
     write(path, node_definition(values))
     print(f"Wrote {show(path)}")
+    if values["platform"] == "ssh":
+        print(
+            "\nThe build offers only the keys ~/.ssh/config names for the node's address, or the default key files.\n"
+            "Add this to ~/.ssh/config, before any Host * block, if it is not there yet:\n"
+        )
+        print(ssh_config_block(values))
     return 0
 
 

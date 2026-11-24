@@ -1,390 +1,274 @@
 ---
 title: Add a New Platform to the Raw Node Controller
-description: How to teach uc-raw-node to build raw nodes on a new platform, with a VPS as the worked example.
-version: 0.1.0
+description: How to teach uc-node to build raw nodes on a new platform, with the ssh platform as the worked example.
+version: 0.2.0
 status: provisional
-date: 2026-11-23
+date: 2026-11-24
 language: en-CA
 ---
 
 # Add a New Platform to the Raw Node Controller
 
-The raw node controller builds a node that meets the raw node contract and writes `confirmation.yml`, so the orchestration controller can take it from there. Today it builds on one platform, a local Incus host. This guide explains what a new platform has to provide, and walks through adding a VPS as the example.
+uc-node builds a node that meets the raw node contract. It builds on two platforms: `incus`, a container on the local Incus host, and `ssh`, any Debian 13 host reached as root over SSH. This guide explains what a platform has to provide and how one is wired in, using the ssh platform as the worked example.
 
 ## Who this is for
 
-You maintain uc-raw-node and want it to build raw nodes somewhere other than the local Incus host: a VPS, bare metal reached over SSH, or another hypervisor. You know `build.yml`, the node definition in `~/.secrets/uc-raw/`, and the guides [Setup the Defaults For New Nodes](1-setup-the-defaults-for-new-nodes.md) and [Build and Check a Raw Node](2-build-and-check-a-raw-node.md).
+You maintain uc-node and want it to build raw nodes somewhere else: another hypervisor, a provider's API, or bare metal. You know `build.yml`, node definitions in `~/.secrets/uc-raw/`, and the guides [Build and Check a Raw Node](2-build-and-check-a-raw-node.md) and [Build a Node on an SSH Host](3-build-a-node-on-an-ssh-host.md).
 
 ## What stays the same
 
-Most of the controller does not care where the node runs. These plays are shared by every platform and should not change:
+Most of the controller does not care where the node runs. These plays are shared by every platform:
 
 | Stage | Plays and roles |
 | :-- | :-- |
+| Check the node definition | The first play in `build.yml`, on localhost |
+| Wait for the node to boot | `tasks/wait-for-boot.yml`, with `boot_timeout` |
 | Bootstrap | `robertdebock.bootstrap` |
-| Configure to contract | `robertdebock.hostname`, `robertdebock.users`, `steelcj.foomuuri`, `robertdebock.openssh` |
-| Reboot | `robertdebock.reboot` |
+| Configure to contract | `robertdebock.hostname`, `robertdebock.users`, `steelcj.foomuuri`, `robertdebock.openssh`, and the `/etc/hosts` line for `hostname -f` |
+| Reboot | `ansible.builtin.reboot`, which fails if the boot ID did not change, then the boot wait again and the ordering cycle check |
 
-The contract is the same on every platform. A platform only changes how the node comes to exist, how the controller reaches it, and which quirks must be removed before the contract can hold.
+The contract is the same on every platform. A platform only changes how the node comes to exist, how the controller reaches it, and what must be removed before the contract can hold.
 
 ## What a platform must provide
 
 A platform is a small set of answers. Write them down before writing any YAML.
 
-| Responsibility | Question it answers | Incus today |
-| :-- | :-- | :-- |
-| Create or adopt | How does the node come to exist? | `incus launch` |
-| Ownership | How does the controller know it built this node, and refuse one it did not? | `user.uc-raw-node.owner` config key |
-| Connect | How does Ansible reach the node, before and after the contract is applied? | `community.general.incus`, always |
-| Wait | How does the controller know the node has booted? | `incus exec ... systemctl is-system-running --wait` |
-| Prepare | What does the platform put on the node that would break the contract? | Nothing, the image is clean |
-| Recover | How do you get in if the network configuration goes wrong? | `incus exec`, which ignores the network |
-| Confirm | Which addresses go in `confirmation.yml`? | The instance's addresses on the Incus network |
+| Responsibility | Question it answers | incus | ssh |
+| :-- | :-- | :-- | :-- |
+| Create or adopt | How does the node come to exist? | `incus launch` | Ordered by hand, then adopted with `-e uc_raw_node_adopt=true` |
+| Ownership | How does the controller know it built this node, and refuse one it did not? | The `user.uc-raw-node.owner` configuration key | The file `/etc/uc-raw-node/owner` |
+| Connect | How does Ansible reach the node, before and after the contract holds? | `community.general.incus`, always | Root on port 22 at first contact, then the initial user on `ssh_port` with `sudo` |
+| Wait | How does the controller know the node has booted? | The shared boot wait | The shared boot wait |
+| Prepare | What does the platform put on the node that would break the contract? | Nothing, the image is clean | sshd drop-ins, cloud-init, root's keys |
+| Recover | How do you get in if the network configuration goes wrong? | `incus exec`, which ignores the network | The provider's web console, with root's password |
+| Confirm | Which addresses does the orchestration controller use? | The instance's addresses on the Incus network | `node_address` |
 
 Incus answers the connect and recover questions so easily that they are invisible. On most other platforms they are the hard part.
 
-## Prepare the controller for more than one platform
+## How a platform is wired in
 
-Do this once, before the first new platform.
+### The data
 
-### Add a platform field to the node definition
-
-A node definition names its platform, and carries what that platform needs:
+`inventory/group_vars/all/platforms.yml` lists every platform, and the node definition fields each one requires on top of `node_required_fields`:
 
 ```yaml
----
-# ~/.secrets/uc-raw/vishpala.com.yml
-platform: vps
-node_address: 203.0.113.10
-hostname: vishpala.com
-root_password_hash: "$6$..."
-initial_username: initial
-initial_password_hash: "$6$..."
-ssh_public_key: ssh-ed25519 AAAA... you@laptop
-ssh_port: 2222
-ssh_sources: []
+platforms:
+  incus:
+    required_fields: []
+  ssh:
+    required_fields:
+      - node_address
 ```
 
-A node definition without `platform` is read as `incus`, so existing definitions keep working.
+The check play refuses a `platform` that is not a key of `platforms`, and a node definition without the platform's required fields. `scripts/new-node` offers the keys as the platform question, then asks for each required field. A new field needs a question in `PLATFORM_QUESTIONS` in `scripts/new-node`, with a check.
 
-### Name the node without reference to a platform
+The platform's own settings go in a file of their own in `inventory/group_vars/all/`, named after it, such as `ssh.yml`. The group_vars live next to the inventory rather than next to `build.yml`, because Ansible loads group_vars next to a playbook from the directory of the playbook whose plays are running, and the platform plays are imported from `platforms/`.
 
-`incus_instance` is used today as the node's name in the inventory. Replace it with a name calculated from the fully qualified domain name, and calculate each platform's own name from that:
+### The plays
 
-```yaml
----
-# group_vars/all/node.yml
-platform: incus
-ssh_port: 22
-ssh_sources: []
-
-node_fqdn: "raw.{{ hostname }}"
-node_name: "{{ node_fqdn | replace('.', '-') }}"
-```
-
-```yaml
----
-# group_vars/all/incus.yml
-incus_image: images:debian/13
-incus_instance: "{{ node_name }}"
-```
-
-This is the same change as the roadmap's hostname and fully qualified domain name item, so do them together.
-
-### Split the create play by platform
-
-Move the first play of `build.yml` into its own file per platform, and import the right one:
+Each platform has a directory under `platforms/`:
 
 ```text
-build.yml
 platforms/
   incus/create.yml
-  vps/create.yml
-  vps/prepare.yml
+  ssh/create.yml
+  ssh/prepare.yml
+  ssh/switch.yml
 ```
 
-```yaml
-#!/usr/bin/env ansible-playbook
----
-- name: Create or adopt the node
-  ansible.builtin.import_playbook: "platforms/{{ platform }}/create.yml"
+`build.yml` imports every platform's plays, whatever the node's platform, each at its stage:
 
-- name: Bootstrap
-  hosts: raw_node
-  gather_facts: false
-  roles:
-    - role: robertdebock.bootstrap
+| Stage in build.yml | incus | ssh |
+| :-- | :-- | :-- |
+| After the check play | `platforms/incus/create.yml` | `platforms/ssh/create.yml` |
+| After bootstrap | | `platforms/ssh/prepare.yml` |
+| After the configure play | | `platforms/ssh/switch.yml` |
 
-# The prepare play, configure play and reboot play follow, as below.
-```
+A play cannot carry `when`, so a platform's plays run only for its own nodes in one of two ways:
 
-`import_playbook` is resolved when the playbook is parsed, so `platform` must be given on the command line with the node definition (`-e @...`), which it already is. A platform with nothing to prepare simply has no `prepare.yml`, and the import for it is guarded with a `when` on the plays inside.
+- A play on localhost keeps all its tasks in one block with `when: platform == '<name>'`. The condition is evaluated after group_vars are loaded, so the `platform` default in `node.yml` applies.
+- A play on the node targets the platform's own group, such as `platform_ssh`. Only that platform's create play adds the node to it, so the group is empty for every other platform.
 
-### Teach scripts/new-node about platforms
+Do not use a templated path such as `platforms/{{ platform }}/create.yml`: `import_playbook` resolves it when the playbook is parsed, before group_vars are loaded, so the `platform` default would not apply.
 
-Add two questions, asked in this order:
+### The create play's contract
 
-1. Platform, `incus` or `vps`, default `incus`.
-2. For `vps` only, the node's address, checked with `ipaddress.ip_address`.
+Whatever else it does, a create play must:
 
-When the platform is `vps` and `ssh_sources` is not empty, print a warning that the controller's own public address must be in the list, or the build will lock itself out.
+- refuse a node the controller does not own, before any change
+- add the node to Ansible's inventory under `node_fqdn`, in the `raw_node` group and the platform's own group
+- set the connection variables there, with `add_host`, never in `inventory/group_vars/all/`, which also applies to localhost
 
-## Worked example: a VPS
+## Worked example: the ssh platform
 
-### Start with adoption, not a provider API
+### Adopt, rather than order through an API
 
-There are two ways a VPS can come to exist:
+There are two ways a host can come to exist:
 
 | Approach | How it works | When to use it |
 | :-- | :-- | :-- |
-| Adopt | You order a Debian 13 VPS by hand, with your SSH key installed for root, and give the controller its address | First. It works with any provider and ties the controller to none |
-| Provider API | The controller orders the VPS itself through the provider's API, for example with the `hetzner.hcloud` collection | Later, one optional `create` file per provider, after the provider passes the Universal Cake metrics |
+| Adopt | You order a Debian 13 host by hand, with your SSH key installed for root, and give the controller its address | First. It works with any provider and ties the controller to none |
+| Provider API | The controller orders the host itself, for example with the `hetzner.hcloud` collection | Later, as a platform of its own, after the provider passes the Universal Cake metrics |
 
-The rest of this example uses adoption. A provider API changes only how the node comes to exist. Everything after that is the same.
+The ssh platform adopts. A provider API would change only how the node comes to exist. Everything after that would be the same.
 
-### Ownership: make adoption a deliberate act
+### Ownership as a deliberate act
 
-A VPS has no `user.uc-raw-node.owner` key, so the marker moves onto the node, as a file:
+A host reached over SSH has no instance configuration key, so the marker is a file on the node, `/etc/uc-raw-node/owner`, holding the single line `uc-raw-node`. The settings are in `inventory/group_vars/all/ownership.yml`.
 
-```text
-/etc/uc-raw-node/owner
-```
+A freshly ordered host has no marker, so the controller cannot tell it apart from someone else's server at the same address. The first build is made explicit:
 
-It holds the single line `uc-raw-node`.
+- The first build is run with `-e uc_raw_node_adopt=true`. If the marker is absent, it is written. If the marker is present, the flag changes nothing.
+- Every other build requires the marker, and stops before any change without it, with a message that says to adopt only the host that was ordered.
+- A marker holding anything else is always refused.
 
-A freshly ordered VPS has no marker yet, so the controller cannot tell it apart from someone else's server at the same address. Make the first run explicit instead:
+A wrong address in a node definition then fails safely, instead of reconfiguring a live server. The marker is read with `raw` before the shared boot wait, since reading it changes nothing.
 
-- The first build is run with `-e uc_raw_node_adopt=true`. If the marker is absent, it writes it. If the marker is present, the flag changes nothing.
-- Every other build requires the marker, and stops before changing anything if it is missing, with a message that says so.
+### Two connections, and knowing which to use
 
-A wrong address in a node definition then fails safely, instead of reconfiguring a live server.
-
-Where a provider API supports labels, set a label as well. The file stays the authority, because it works everywhere.
-
-### Connect: two connections, and knowing which to use
-
-A VPS is reached in two different ways over its life:
+A host is reached in two ways over its life:
 
 | State | User | Port | Authentication |
 | :-- | :-- | :-- | :-- |
 | First contact | `root` | 22 | The key the provider installed |
-| Meets the contract | `initial_username` | `ssh_port` | The key, plus the become password for `sudo` |
+| Meets the contract | `initial_username` | `ssh_port` | The key, plus the initial user's password for `sudo` |
 
-Root login and password authentication are off once the contract holds, so a second run cannot use the first-contact connection. The create play finds out which state the node is in, by trying the contract connection first:
+Root login is off once the contract holds, so a second build cannot use the first-contact connection. `platforms/ssh/create.yml` finds out which state the node is in by trying the contract connection first, once, with `ssh` itself:
 
 ```yaml
----
-# platforms/vps/create.yml (sketch)
-- name: Adopt the node
-  hosts: localhost
-  gather_facts: false
-
-  tasks:
-    - name: Try the contract connection
-      ansible.builtin.command:
-        cmd: >-
-          ssh -o BatchMode=yes -o ConnectTimeout=10
-          -p {{ ssh_port }} {{ initial_username }}@{{ node_address }} true
-      register: contract_login
-      changed_when: false
-      failed_when: false
-
-    - name: Add the node to the inventory
-      ansible.builtin.add_host:
-        name: "{{ node_name }}"
-        groups: raw_node
-        ansible_host: "{{ node_address }}"
-        ansible_user: "{{ initial_username if contract_login.rc == 0 else 'root' }}"
-        ansible_port: "{{ ssh_port if contract_login.rc == 0 else 22 }}"
-      changed_when: false
-
-- name: Check ownership
-  hosts: raw_node
-  gather_facts: false
-
-  tasks:
-    - name: Wait for the node to answer
-      ansible.builtin.wait_for_connection:
-        timeout: 300
-
-    - name: Wait for the node to finish booting
-      ansible.builtin.command:
-        cmd: systemctl is-system-running --wait
-      register: boot
-      changed_when: false
-      failed_when: boot.stdout not in ['running', 'degraded']
-
-    - name: Read the ownership marker
-      ansible.builtin.slurp:
-        src: /etc/uc-raw-node/owner
-      register: owner
-      failed_when: false
-
-    - name: Refuse a node uc-raw-node does not own
-      ansible.builtin.assert:
-        that:
-          - (owner.content | default('') | b64decode | trim) == 'uc-raw-node'
-            or (uc_raw_node_adopt | default(false) | bool)
-        fail_msg: "{{ inventory_hostname }} has no uc-raw-node marker. Run with -e uc_raw_node_adopt=true only if this is the VPS you ordered."
-        quiet: true
-
-    - name: Write the ownership marker
-      ansible.builtin.copy:
-        dest: /etc/uc-raw-node/owner
-        content: "uc-raw-node\n"
-        owner: root
-        group: root
-        mode: "0644"
-      become: true
+- name: Try the contract connection
+  ansible.builtin.command:
+    argv: "{{ ssh_probe_command + ['-p', ssh_port | string, '-l', initial_username, node_address, 'true'] }}"
+  register: contract_probe
+  changed_when: false
+  failed_when: false
 ```
 
-The `copy` task needs `/etc/uc-raw-node/` to exist, so create it with `ansible.builtin.file` first. With the contract connection, `become` needs the initial user's password: give it with `--ask-become-pass`, or from an Ansible Vault file kept in `~/.secrets/uc-raw/`.
+If it fails, it tries root on port 22, once. If both fail, it stops, quoting both errors.
 
-### Check the host key on first contact
+#### Never retry a failed login
 
-The first SSH connection to a new VPS trusts whatever host key answers. Before the first build:
+OpenSSH 10's PerSourcePenalties blocks an address that keeps failing to log in. A reconnect loop as root, with the agent offering every key, locked the controller out of a host in an early test. So:
 
-```sh
-ssh-keyscan -t ed25519 203.0.113.10
-```
+- each login is tried once, and a failed one is never retried
+- the probes are plain `ssh` commands, not `wait_for_connection`, which retries until it times out, and needs Python, which bootstrap installs later
+- every connection uses `IdentitiesOnly=yes`, so ssh offers only the default key files and the keys `~/.ssh/config` names for the address, never every key in the agent
 
-Compare the fingerprint with the one shown in the provider's web console, then add it to `~/.ssh/known_hosts`. Do not turn off host key checking in `ansible.cfg` to save this step.
+With `IdentitiesOnly=yes`, a key kept outside the default files needs an entry in `~/.ssh/config`. Its `Host` line must be the address, since Ansible connects to `node_address`. `scripts/new-node` prints the entry, and the create play prints it when both logins are refused with `Permission denied`.
 
-### Prepare: remove what cloud-init brings
+#### Check the host key, always
 
-VPS images usually run cloud-init, which the Incus image does not. Three of the things it does work against the contract:
+Every connection uses `StrictHostKeyChecking=yes`, first contact included, and the create play stops if Ansible's own host key checking is turned off. An unknown or changed host key stops the build before any login, with a message saying to check the key against the provider's console and add it to known_hosts.
 
-| What cloud-init does | Why it matters | What to do |
+The connections also use `HostKeyAlias=<node_address>`, so the key is looked up under the bare address whatever the port, and one known_hosts line covers first contact and the contract port. These options are `ssh_client_options` in `inventory/group_vars/all/ssh.yml`.
+
+#### Become
+
+On the contract connection the create play sets `ansible_become: true`. As root it leaves become off, since `sudo` may not be installed yet. Every ssh build is run with `--ask-become-pass`, the first included, because the build switches to the contract connection before the reboot.
+
+### Prepare: remove what the provider brings
+
+`platforms/ssh/prepare.yml` runs after bootstrap and before the configure play.
+
+| What the provider's image does | Why it matters | What the build does |
 | :-- | :-- | :-- |
-| Writes a file in `/etc/ssh/sshd_config.d/`, often setting `PasswordAuthentication yes` | sshd keeps the first value it reads for each setting, and the drop-ins are read before the main file, so this overrides `robertdebock.openssh` | Remove any drop-in that sets an SSH option the contract controls |
-| Resets the hostname and `/etc/hosts` at boot | Undoes `robertdebock.hostname` after the reboot | Set `preserve_hostname: true` and `manage_etc_hosts: false` |
-| Can rewrite network configuration at boot | Can undo network changes the contract may make later | Leave it for now, and decide in the contract whether cloud-init may stay |
+| Writes a file in `/etc/ssh/sshd_config.d/`, often with `PasswordAuthentication yes` | sshd keeps the first value it reads for each setting, and drop-ins are read first | Removes every drop-in that sets an option in `ssh_contract_options`. `robertdebock.openssh` writes an `sshd_config` without an `Include` line, so drop-ins stop being read anyway, but a later `Include` cannot bring them back |
+| Runs cloud-init, which resets the hostname and `/etc/hosts` at boot | Undoes `robertdebock.hostname` after the reboot | Writes `/etc/cloud/cloud.cfg.d/99-uc-raw-node.cfg` with `preserve_hostname: true` and `manage_etc_hosts: false` |
+| Runs cloud-init 25, which forms a systemd ordering cycle with Foomuuri | systemd skips a unit to break the cycle: cloud-init's network stage, which leaves the node in `starting` forever, or possibly the firewall | Creates `/etc/cloud/cloud-init.disabled`, so cloud-init does not run after the first boot |
+| Installs your key for root | Root cannot log in under the contract, but a key left there would work if that changed | Empties root's `authorized_keys`, in `switch.yml`, once the contract connection has worked |
 
-Put this in `platforms/vps/prepare.yml`, a play on `raw_node` that runs after bootstrap and before the configure play:
+Root's keys are emptied after the switch rather than in the prepare play. Until the contract connection has worked, root's key is the only way back in over SSH, and a configure play that failed after the keys were gone would leave only the console.
 
-```yaml
----
-# platforms/vps/prepare.yml (sketch)
-- name: Prepare the node
-  hosts: raw_node
-  gather_facts: false
-  become: true
-
-  tasks:
-    - name: Find SSH drop-ins that set options the contract controls
-      ansible.builtin.find:
-        paths: /etc/ssh/sshd_config.d
-        patterns: "*.conf"
-        contains: '(?i)^\s*(PasswordAuthentication|PermitRootLogin|Port)\s'
-      register: ssh_dropins
-
-    - name: Remove them
-      ansible.builtin.file:
-        path: "{{ item.path }}"
-        state: absent
-      loop: "{{ ssh_dropins.files }}"
-
-    - name: Keep cloud-init away from the hostname
-      ansible.builtin.copy:
-        dest: /etc/cloud/cloud.cfg.d/99-uc-raw-node.cfg
-        content: |
-          preserve_hostname: true
-          manage_etc_hosts: false
-        mode: "0644"
-```
-
-If you would rather not have cloud-init at all after the first boot, create `/etc/cloud/cloud-init.disabled` instead. Either way, record the choice as a contract clause that says which provider agents may remain on a raw node, such as cloud-init and `qemu-guest-agent`.
+The ordering cycle runs from `cloud-init-network.service` through `systemd-networkd-wait-online.service`, `systemd-networkd.service`, `network-pre.target`, `foomuuri.service` and `foomuuri-boot.service` to `sysinit.target`, which `cloud-init-network.service` is ordered before. The ROADMAP has the item to raise it upstream.
 
 ### Avoid locking yourself out
 
-On Incus, a bad firewall or SSH setting is harmless, because `incus exec` does not use the network. On a VPS, the build changes the firewall and SSH over the very connection it is using.
+On Incus, a bad firewall or SSH setting is harmless, because `incus exec` does not use the network. On an SSH host, the build changes the firewall and SSH over the very connection it is using.
 
 #### Keep the order: firewall, then SSH
 
-`build.yml` already applies `steelcj.foomuuri` before `robertdebock.openssh`. Keep it that way, so the firewall allows `ssh_port` before sshd moves to it.
+`build.yml` applies `steelcj.foomuuri` before `robertdebock.openssh`. With a new port, the firewall would drop new connections to the old port before sshd moves. So the create play refuses a first contact whose `ssh_port` is not the first-contact port. Changing the port later is not supported yet, and is in the ROADMAP.
 
 #### Switch connections after SSH changes
 
-Once `robertdebock.openssh` has restarted sshd, the first-contact connection no longer works. Between the configure play and the reboot play, point the inventory at the contract connection and reset it:
+Once `robertdebock.openssh` has set `PermitRootLogin no`, root cannot log back in after the reboot. `platforms/ssh/switch.yml` runs between the configure play and the reboot:
 
 ```yaml
-- name: Switch to the contract connection
-  hosts: raw_node
-  gather_facts: false
+- name: Use the initial user on the contract port, with become
+  ansible.builtin.set_fact:
+    ansible_user: "{{ initial_username }}"
+    ansible_port: "{{ ssh_port }}"
+    ansible_become: true
 
-  tasks:
-    - name: Use the initial user on the contract port
-      ansible.builtin.set_fact:
-        ansible_user: "{{ initial_username }}"
-        ansible_port: "{{ ssh_port }}"
-
-    - name: Reconnect
-      ansible.builtin.meta: reset_connection
+- name: Reconnect
+  ansible.builtin.meta: reset_connection
 ```
 
 The reboot then runs over the contract connection, which also proves that the contract connection works.
 
 #### Mind ssh_sources
 
-If `ssh_sources` is set, the controller's own public address must be in it, or the firewall shuts the controller out before SSH is reconfigured. Check this before the first build. `scripts/new-node` warns about it, as described above.
+If `ssh_sources` is set, the controller's own public address must be in it, or the firewall shuts the controller out. `scripts/new-node` asks you to confirm it for an ssh node.
 
 #### Know your way back in
 
-The provider's web console, with the root password, is the way back in when SSH is unreachable. This is one reason the contract keeps a root password even though root cannot log in over SSH. Test the console login once on every new provider, before you need it.
+The provider's web console, with root's password, is the way back in when SSH is unreachable. This is one reason the contract keeps a root password although root cannot log in over SSH. Test the console login once on every new provider, before you need it.
+
+### Reboot, and check the boot
+
+`robertdebock.reboot` reported changed without rebooting, because its job was killed before the shutdown ran. The build uses `ansible.builtin.reboot`, which fails if the boot ID did not change within `reboot_timeout`. After the reboot, every platform:
+
+- waits for the node to report `running` or `degraded`, for at most `boot_timeout` seconds, and otherwise stops with the jobs it is waiting for and any ordering cycle
+- reads systemd's ordering cycle lines from `journalctl -b`, filtered on `SYSLOG_IDENTIFIER=systemd`, and on Incus from `incus console --show-log`, since a container's early boot messages never reach its journal
+- fails if there are any
+
+A provider's cloud-init can reset the hostname at the reboot, so check `hostname -f` after it, as the ssh guide does.
 
 ### Network and confirmation
 
 #### Firewall zones
 
-On Incus the node has one interface. A VPS may have a public interface and a private network, and usually IPv6. Check that the Foomuuri zones match the interfaces the VPS really has, and that rules cover IPv6. A firewall offered by the provider is separate from the node, and outside the contract.
+An Incus container has one interface. A VPS may have a public interface, a private network, and IPv6. Check that the Foomuuri zones match the interfaces the host really has, and that rules cover IPv6. A firewall offered by the provider is separate from the node, and outside the contract.
 
 #### DNS
 
-Decide whether the A and AAAA records for `raw.<client domain>` are part of the contract or a step for the orchestration controller. Either answer works. Write it down.
+Decide whether the A and AAAA records for the node's fully qualified domain name are part of the contract or a step for the orchestration controller. Either answer works. Write it down.
 
 #### confirmation.yml
 
-For a VPS, the `ip` and `ip6` fields hold the node's public addresses, since those are what the orchestration controller will use. Check that the first-boot unit that writes `confirmation.yml` exists in the repository and runs on the VPS image, since the reboot relies on it.
+The orchestration controller needs the node's addresses. For the ssh platform, that is `node_address`, and any IPv6 address the host has. uc-node does not write `confirmation.yml` yet.
 
 ## Check the new platform
 
-Run the checks from [Build and Check a Raw Node](2-build-and-check-a-raw-node.md) over SSH instead of `incus exec`:
-
-```sh
-ssh -p 2222 initial@203.0.113.10 'cat /etc/uc-raw-node/owner'
-ssh -p 2222 initial@203.0.113.10 'python3 --version; sudo --version | head -n 1'
-ssh -p 2222 initial@203.0.113.10 'sudo sshd -T | grep -E "^(port|permitrootlogin|passwordauthentication) "'
-ssh -p 2222 initial@203.0.113.10 'systemctl is-enabled foomuuri'
-ssh -p 2222 initial@203.0.113.10 'hostname; hostname -f'
-```
-
-Expected: `uc-raw-node`, the versions of Python and sudo, `port 2222`, `permitrootlogin no` and `passwordauthentication no`, `enabled`, and the hostname and fully qualified domain name from the node definition, still in place after the reboot.
-
-Then the checks that matter most for a remote platform:
+Run the checks from the platform's guide, then these, which matter most for a remote platform:
 
 | Check | How | Expected |
 | :-- | :-- | :-- |
-| Root cannot log in | `ssh -p 2222 root@203.0.113.10` | Refused |
-| Passwords are refused | `ssh -o PubkeyAuthentication=no -p 2222 initial@203.0.113.10` | Refused |
-| The old port is closed | `ssh -p 22 initial@203.0.113.10` | Times out or is refused |
-| A second run is quiet | Run `build.yml` again, without `uc_raw_node_adopt` | `changed=1` for the node, the reboot, and nothing else |
-| A server without the marker is refused | Point a node definition at a VPS without the marker, and build without `uc_raw_node_adopt` | Stops before any change, with the ownership message |
-| The console works | Log in as root through the provider's web console | Works |
+| A second build is quiet | Build again, without `uc_raw_node_adopt` | `changed=1` for the node, the reboot, and nothing else |
+| A node without the marker is refused | Build a host without the marker, without `uc_raw_node_adopt` | Stops before any change, with the ownership message |
+| An unknown host key is refused | Build with the host key missing from known_hosts | Stops before any login, with the host key message |
+| Root cannot log in | `ssh root@<address>` | Refused |
+| Passwords are refused | `ssh -o PubkeyAuthentication=no initial@<address>` | Refused |
+| The boot is clean | `sudo journalctl -b SYSLOG_IDENTIFIER=systemd \| grep -ci "ordering cycle"` | `0` |
+| The way back in works | The provider's console, as root | Works |
 
 ## Checklist for any new platform
 
 - [ ] The platform answers every question in [What a platform must provide](#what-a-platform-must-provide)
-- [ ] `platforms/<platform>/create.yml` creates or adopts the node, and adds it to the `raw_node` group
-- [ ] Ownership is checked before any change, and a node the controller did not build is refused
-- [ ] A second run finds the right connection without being told
-- [ ] Anything the platform puts on the node that breaks the contract is removed in `platforms/<platform>/prepare.yml`
+- [ ] It is a key in `inventory/group_vars/all/platforms.yml`, with its required fields, and `scripts/new-node` can ask for each of them
+- [ ] Its settings are in `inventory/group_vars/all/<platform>.yml`, each with a comment saying what it is for
+- [ ] `platforms/<platform>/create.yml` creates or adopts the node, refuses one it does not own before any change, and adds it to `raw_node` and `platform_<platform>` with `add_host`
+- [ ] Its plays on localhost run their tasks under `when: platform == '<platform>'`, and its plays on the node target `platform_<platform>`
+- [ ] `build.yml` imports them at their stage, with fixed paths
+- [ ] A second build finds the right connection without being told
+- [ ] A failed login is never retried in a loop, and host key checking stays on
+- [ ] Anything the platform puts on the node that breaks the contract is removed
 - [ ] There is a way back in that does not depend on the node's network configuration, and it has been tested
-- [ ] `confirmation.yml` carries the addresses the orchestration controller will use
-- [ ] `scripts/new-node` asks for what the platform needs, and checks it
-- [ ] The checks in this guide pass, and a guide for the platform is added to `en/guides/`
+- [ ] The checks in this guide pass, and a guide for the platform is in `en/docs/guides/`
 
 ## Changelog
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.2.0 | 2026-11-24 | Brought in line with what was built, still provisional: `ssh` instead of `vps`, `platforms.yml`, the `when` blocks and platform groups, group_vars under the inventory, `ansible.builtin.reboot` and the boot checks, `IdentitiesOnly`, the host key, root's keys, PerSourcePenalties, and the cloud-init ordering cycle |
 | 0.1.0 | 2026-11-23 | First draft, provisional: the platform model, and a VPS adopted over SSH as the worked example |

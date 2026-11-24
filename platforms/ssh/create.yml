@@ -71,6 +71,41 @@
             quiet: true
           when: contract_probe.rc != 0
 
+        # With IdentitiesOnly=yes, ssh offers only the keys ~/.ssh/config
+        # names for the address, or the default key files, so a key kept
+        # elsewhere needs an entry there. Show the entry the node needs.
+        - name: Find the private key of ssh_public_key
+          ansible.builtin.find:
+            paths: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh"
+            patterns: "*.pub"
+          register: ssh_public_key_files
+          when: &ssh_permission_denied
+            - contract_probe.rc != 0
+            - first_contact_probe.rc != 0
+            - "'Permission denied' in contract_probe.stderr ~ first_contact_probe.stderr"
+
+        - name: Note the private key of ssh_public_key
+          ansible.builtin.set_fact:
+            ssh_private_key_path: "{{ item.path | regex_replace('\\.pub$', '') | regex_replace('^' ~ lookup('ansible.builtin.env', 'HOME') ~ '/', '~/') }}"
+          loop: "{{ ssh_public_key_files.files | default([]) }}"
+          loop_control:
+            label: "{{ item.path }}"
+          when:
+            - (lookup('ansible.builtin.file', item.path).split()[:2]) == (ssh_public_key.split()[:2])
+
+        - name: Show the ~/.ssh/config entry the node needs
+          ansible.builtin.debug:
+            msg:
+              - "Both logins were refused with Permission denied. If the key is not one of the default key files, add this to ~/.ssh/config, before any Host * block:"
+              - ""
+              - "# uc-node: {{ node_fqdn }}"
+              - "Host {{ node_address }}"
+              - "    IdentityFile {{ ssh_private_key_path | default('<path to the private key of ssh_public_key>') }}"
+              - "    IdentitiesOnly yes"
+              - "    # Optional, only for manual ssh/scp; the build passes the user itself"
+              - "    User {{ initial_username }}"
+          when: *ssh_permission_denied
+
         - name: Stop if neither connection works
           ansible.builtin.assert:
             that:
@@ -82,7 +117,8 @@
               ({{ first_contact_probe.stderr_lines | default([]) | last | default('no message') }}).
               Each was tried once and is not retried, since repeated failed
               logins make OpenSSH 10 block this address. Check the address,
-              the key and the port, then run again.
+              the key and the port, then run again. After Permission denied,
+              the task above shows the ~/.ssh/config entry the node needs.
             quiet: true
 
         - name: Note which connection works

@@ -2,35 +2,9 @@
 
 ## Next
 
-### Set the hostname and fully qualified domain name on the node
-
-The node is still named after the client domain inside. Calculate the two names agreed for a raw node from the client domain, and hand them to `robertdebock.hostname`:
-
-| Name | Rule | For `vishpala.com` |
-| :-- | :-- | :-- |
-| Hostname | the first label of the fully qualified domain name | `raw` |
-| Fully qualified domain name | `raw.<client domain>` | `raw.vishpala.com` |
-
-The fully qualified domain name becomes its own variable, and `incus_instance` in `group_vars/all/incus.yml` is calculated from it instead of repeating the rule.
-
-### Check the node definition before anything is created
-
-A missing field is only found after the instance has been created and bootstrapped, when `robertdebock.users` reads it. Add a check at the start of the Create the node play, so the run stops before anything is created:
-
-- every required field is present
-- the client domain is DNS labels separated by dots
-- the naming rules hold, once they are settled
-
-`scripts/new-node` already checks its answers, so the check in `build.yml` covers node definitions written by hand.
-
 ### Tag steelcj.foomuuri
 
 `requirements.yml` pins `steelcj.foomuuri` to a commit, because the role has no release yet. Tag the repository, for example `0.1.2`, and pin the tag instead.
-
-### Bring the design documents in line
-
-The uc-create-raw-node design brief and the simple split describe an earlier design: five playbooks, `raw_node_firewall`, a platform registry, attempt records and a validator. Update them to the controller as it is now, or retire what no longer applies.
-
 
 ### Raise the cloud-init and Foomuuri ordering cycle upstream
 
@@ -62,3 +36,33 @@ The ssh platform refuses a first build whose `ssh_port` is not the first-contact
 ### Raise AuthorizedKeysCommand none with robertdebock.openssh
 
 The role's templates always write `AuthorizedKeysCommand {{ openssh_authorized_keys_command }}`, with `none` as the default. sshd 10 does not read `none` as unset for this option, and logs "AuthorizedKeysCommand path is not absolute" whenever no key in `authorized_keys` matches. uc-node sets it to `/usr/bin/true`. Ask the role to leave the line out when the value is `none`.
+
+### Refuse connection variables in a node definition
+
+A node definition is passed with `-e`, so a connection variable in it, such as `ansible_user`, `ansible_port` or `ansible_ssh_common_args`, overrides what the create play sets with `add_host`. The check play refuses the calculated names, but not these. Refuse any `ansible_` variable in a node definition, or name the ones that are allowed.
+
+## Later
+
+### Write confirmation.yml
+
+The orchestration controller needs to know that a node meets the contract, and how to reach it. uc-node does not write `confirmation.yml` yet. Decide what it holds, for example the fully qualified domain name, the addresses, `ssh_port` and the build's time, and where it is written: on the node, on the controller, or both.
+
+### Decide which provider agents may stay on a raw node
+
+The ssh platform disables cloud-init after the first boot. Other provider agents, such as `qemu-guest-agent`, are left as they are. Write a contract clause that says which agents may remain, and what the build does with the others.
+
+### Decide who owns DNS
+
+Decide whether the A and AAAA records for a node's fully qualified domain name are part of the raw node contract or a step for the orchestration controller.
+
+### Check the firewall zones on hosts with more than one interface
+
+An Incus container has one interface. A VPS may have a public interface, a private network and IPv6. Check that Foomuuri's zones match the interfaces such a host really has, and that its rules cover IPv6.
+
+### Order hosts through a provider's API
+
+The ssh platform adopts a host ordered by hand. A provider whose API passes the Universal Cake metrics could have a platform of its own that orders the host, for example with the `hetzner.hcloud` collection, and then reuses the ssh platform's plays.
+
+### Bring the design documents in line
+
+The uc-create-raw-node design brief and the simple split describe an earlier design: five playbooks, `raw_node_firewall`, a platform registry, attempt records and a validator. Update them to the controller as it is now, with its platforms in `inventory/group_vars/all/platforms.yml` and `platforms/`, or retire what no longer applies.

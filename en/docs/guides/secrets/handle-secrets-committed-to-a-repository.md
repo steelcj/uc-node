@@ -1,9 +1,9 @@
 ---
 title: Handle Secrets Committed to a Repository
 description: What to do when a password, key, token or other private information has been committed to a git repository, from containment to clean-up and prevention.
-version: 0.1.0
+version: 0.1.1
 status: provisional
-date: 2026-11-23
+date: 2026-11-24
 language: en-CA
 ---
 
@@ -72,9 +72,9 @@ unset SECRET
 Example
 
 ```bash
-read -rs HW25v
-git log --all --oneline -S "HW25v"
-git grep -F "HW25v" $(git rev-list --all) -- | cut -d: -f1-2 | sort -u
+read -rs SECRET
+git log --all --oneline -S "$SECRET"
+git grep -F "$SECRET" $(git rev-list --all) -- | cut -d: -f1-2 | sort -u
 unset SECRET
 ```
 
@@ -284,22 +284,17 @@ Turn on secret scanning and push protection in each GitHub repository's security
 - Stage files by name, and read `git diff --cached` before every commit.
 - Avoid `git add .`, `git add -A` and `git commit -a` in repositories that sit next to secrets or scratch notes.
 
-## Worked example: uc-node, 2026-11-23
+## Worked example: uc-node
 
 ### What happened
 
-Commit `f54a45b` added working notes to a public repository. Two of them held plaintext passwords next to the address of a VPS and the account that logs in to it:
-
-- `en/docs/guides/ex2/cloud-flair.md`
-- `en/docs/guides/blacklists/x imata.md`
-
-Earlier commits were not affected, so tag `v0.1.1` is unaffected.
+A commit added working notes to a public repository. Two of the notes held plaintext passwords next to the address of a VPS and the account that logs in to it. They were scratch notes about a provider and a client, kept in directories meant for documents, and committed with the rest. Earlier commits and tags were not affected.
 
 ### What to do
 
 1. Change both passwords, at the VPS and in the provider panel, and check the VPS's SSH log for logins from unknown addresses since the commit was pushed.
 2. Decide which notes to keep. They hold useful findings, so either move them out of the repository to a private place, or keep them with the passwords replaced.
-3. In a fresh clone, remove the two files, using quotes for the path with a space, or use `--replace-text` to keep them without the passwords.
+3. In a fresh clone, remove the notes with `--invert-paths`, quoting any path with a space, or use `--replace-text` to keep them without the passwords.
 4. Search again, force-push, and contact GitHub Support if the passwords cannot be rotated.
 5. Re-sync the claude.ai Project's GitHub source, delete other clones and clone again, and remove scratch copies, including the one made in the Claude session that found it.
 6. Add the gitleaks pre-commit hook and turn on push protection.
@@ -309,4 +304,5 @@ Earlier commits were not affected, so tag `v0.1.1` is unaffected.
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.1 | 2026-11-24 | The worked example describes the leaked notes in general terms, without their paths or a date in its heading, and the search example uses the `SECRET` variable throughout |
 | 0.1.0 | 2026-11-23 | First draft, provisional |

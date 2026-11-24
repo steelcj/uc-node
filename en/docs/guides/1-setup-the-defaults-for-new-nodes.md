@@ -1,8 +1,10 @@
-# 1. Setup the Defaults For New Nodes
+# Set Up the Defaults for New Nodes
 
 ## Create the defaults for scripts/new-node
 
 `scripts/new-node` reads its defaults from `~/.secrets/uc-raw/defaults.yml`. That file holds password hashes, so it and its directories must be readable by you alone.
+
+The defaults are the values most of your nodes share. The node's label, its platform and, on the `ssh` platform, its address differ from node to node, so `scripts/new-node` always asks for them.
 
 ### Create the directories
 
@@ -51,8 +53,9 @@ Then paste:
 # Defaults for scripts/new-node. Holds password hashes, so keep it at mode
 # 0600, in a directory of mode 0700.
 
-# The client's domain.
-client_domain: vishpala.com
+# The client's domain. A node is named <node label>.<client domain>,
+# for example raw.example.org.
+client_domain: example.org
 
 # The initial user of a raw node.
 initial_user: initial
@@ -64,7 +67,8 @@ ssh_public_key: ssh-ed25519 AAAA... you@laptop
 # The port SSH listens on.
 ssh_port: 22
 
-# Addresses or networks allowed to reach SSH. Empty means any.
+# Addresses or networks allowed to reach SSH. Empty means any. On the ssh
+# platform, the list must include the controller's own public address.
 ssh_sources: []
 
 # The default passwords, as SHA-512 crypt hashes only. Make each with:
@@ -104,6 +108,6 @@ Expected:
 scripts/new-node
 ```
 
-Answer `y` to "Use defaults?", then `n` to the write question. If a value doesn't meet its rule, the script names the setting and says why.
+Answer `y` to "Use defaults?", press Enter for the node label and the platform, then answer `n` to the write question. If a value doesn't meet its rule, the script names the setting and says why.
 
-Next: [Build and check a raw node](2-build-and-check-a-raw-node.md).
+Next: [Build and Check a Raw Node](2-build-and-check-a-raw-node.md) on the local Incus host, or [Build a Node on an SSH Host](3-build-a-node-on-an-ssh-host.md).

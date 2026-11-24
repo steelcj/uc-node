@@ -1,7 +1,7 @@
 ---
 title: Handle Secrets Committed to a Repository
 description: What to do when a password, key, token or other private information has been committed to a git repository, from containment to clean-up and prevention.
-version: 0.1.1
+version: 0.1.2
 status: provisional
 date: 2026-11-24
 language: en-CA
@@ -60,7 +60,7 @@ Do not push anything else to the repository until this step is done.
 
 ### Find every occurrence
 
-Search all of history, not only the current files. Replace `THE-SECRET` with a distinctive part of the value, typed at the prompt rather than saved in a file:
+Search all of history, not only the current files. At the prompt `read -rs` gives, type a distinctive part of the value, rather than saving it in a file:
 
 ```sh
 read -rs SECRET
@@ -179,7 +179,7 @@ install -m 0600 /dev/null ~/replacements.txt
 ```
 
 ```text
-the-old-password==>REDACTED
+EXAMPLE-NOT-A-SECRET==>REDACTED
 regex:ghp_[A-Za-z0-9]{36}==>REDACTED-TOKEN
 ```
 
@@ -304,5 +304,6 @@ A commit added working notes to a public repository. Two of the notes held plain
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.2 | 2026-11-24 | The search instructions match the `read -rs SECRET` commands, and the replacements example uses `EXAMPLE-NOT-A-SECRET`, so no example can be mistaken for a real secret |
 | 0.1.1 | 2026-11-24 | The worked example describes the leaked notes in general terms, without their paths or a date in its heading, and the search example uses the `SECRET` variable throughout |
 | 0.1.0 | 2026-11-23 | First draft, provisional |

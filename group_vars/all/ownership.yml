@@ -1,0 +1,14 @@
+---
+# group_vars/all/ownership.yml
+#
+# How uc-raw-node marks a node as its own, so it never changes a node it did
+# not build or adopt.
+
+# The marker's value.
+uc_raw_node_owner: uc-raw-node
+
+# On Incus, the instance configuration key that holds the marker.
+uc_raw_node_owner_key: user.uc-raw-node.owner
+
+# On a host reached over SSH, the file on the node that holds the marker.
+uc_raw_node_owner_file: /etc/uc-raw-node/owner

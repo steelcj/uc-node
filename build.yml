@@ -4,15 +4,6 @@
   hosts: localhost
   gather_facts: false
 
-  vars:
-    # The fields every node definition must set. They have no default.
-    node_required_fields:
-      - client_domain
-      - root_password_hash
-      - initial_username
-      - initial_password_hash
-      - ssh_public_key
-
   tasks:
     # group_vars/all/hostname.yml sets hostname from node_hostname, so a
     # different value can only come from a node definition written before
@@ -24,21 +15,42 @@
         fail_msg: "The node definition sets hostname, which is no longer used. Rename hostname to client_domain in the node definition."
         quiet: true
 
+    - name: Check platform
+      ansible.builtin.assert:
+        that:
+          - platform in platforms
+        fail_msg: "platform must be one of {{ platforms.keys() | join(', ') }}. It is {{ platform }}."
+        quiet: true
+
     - name: Check that the required fields are present
       ansible.builtin.assert:
         that:
           - lookup('ansible.builtin.vars', item, default='') | string | length > 0
-        fail_msg: "The node definition has no {{ item }}."
+        fail_msg: "The node definition has no {{ item }}, which the {{ platform }} platform requires."
         quiet: true
-      loop: "{{ node_required_fields }}"
+      loop: "{{ node_required_fields + platforms[platform].required_fields }}"
 
+    # These restate the rules in names.yml and incus.yml, so a value that
+    # differs can only come from the node definition. Change them together.
+    - name: Refuse a node definition that sets a calculated name
+      ansible.builtin.assert:
+        that:
+          - node_fqdn == node_label ~ '.' ~ client_domain
+          - node_hostname == node_label
+          - incus_instance == (node_label ~ '.' ~ client_domain) | replace('.', '-')
+        fail_msg: "The node definition sets node_fqdn, node_hostname or incus_instance. These are calculated from client_domain and node_label, so remove them from the node definition."
+        quiet: true
+
+    # The same rule as scripts/new-node: at least two labels, each of 1 to
+    # 63 lowercase letters, digits and hyphens, not starting or ending with
+    # a hyphen, and at most 253 characters in all.
     - name: Check client_domain
       ansible.builtin.assert:
         that:
           - client_domain is string
           - client_domain | length <= 253
           - client_domain is ansible.builtin.match('^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$')
-        fail_msg: "client_domain must be DNS labels of lowercase letters, digits and hyphens, separated by dots, for example example.org. It is {{ client_domain }}."
+        fail_msg: "client_domain must be DNS labels of lowercase letters, digits and hyphens, each at most 63 characters, separated by dots and at most 253 characters in all, for example example.org. It is {{ client_domain }}."
         quiet: true
 
     - name: Check node_label
@@ -48,48 +60,21 @@
         fail_msg: "node_label must be one of {{ node_labels | join(', ') }}. It is {{ node_label }}."
         quiet: true
 
-- name: Create the node
-  hosts: localhost
-  gather_facts: false
-
-  tasks:
-    - name: Look for the instance
-      ansible.builtin.command:
-        cmd: incus query /1.0/instances/{{ incus_instance }}
-      register: instance
-      changed_when: false
-      failed_when: false
-
-    - name: Refuse an instance uc-raw-node does not own
+    # Incus allows at most 63 characters in an instance name.
+    - name: Check the length of the Incus instance name
       ansible.builtin.assert:
         that:
-          - (instance.stdout | from_json).config['user.uc-raw-node.owner'] | default('') == 'uc-raw-node'
-        fail_msg: "{{ incus_instance }} exists but was not created by uc-raw-node, so it is left alone."
+          - incus_instance | length <= 63
+        fail_msg: "The Incus instance name {{ incus_instance }} is {{ incus_instance | length }} characters, and Incus allows at most 63. Use a shorter client_domain."
         quiet: true
-      when: instance.rc == 0
+      when: platform == 'incus'
 
-    - name: Launch the instance with the ownership marker
-      ansible.builtin.command:
-        cmd: >-
-          incus launch {{ incus_image }} {{ incus_instance }}
-          --config user.uc-raw-node.owner=uc-raw-node
-      changed_when: true
-      when: instance.rc != 0
-
-    - name: Add the node to the inventory
-      ansible.builtin.add_host:
-        name: "{{ node_fqdn }}"
-        groups: raw_node
-        ansible_connection: community.general.incus
-        ansible_incus_host: "{{ incus_instance }}"
-      changed_when: false
-
-    - name: Wait for the node to boot
-      ansible.builtin.command:
-        cmd: incus exec {{ incus_instance }} -- systemctl is-system-running --wait
-      register: boot
-      changed_when: false
-      failed_when: boot.stdout not in ['running', 'degraded']
+# Every platform's plays are imported, whatever the node's platform. Each
+# play inside runs its tasks only when platform names its platform. A
+# templated import path would be resolved before group_vars are loaded, so
+# the platform default in node.yml would not apply.
+- name: Create the node on Incus
+  ansible.builtin.import_playbook: platforms/incus/create.yml
 
 - name: Bootstrap
   hosts: raw_node

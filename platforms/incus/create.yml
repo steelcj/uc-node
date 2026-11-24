@@ -1,0 +1,59 @@
+---
+# Create the node on the local Incus host, or find the one uc-raw-node
+# created before, and add it to the raw_node group.
+#
+# build.yml imports this file whatever the node's platform. A play cannot
+# carry a when condition, so every play here keeps its tasks in a block with
+# when: platform == 'incus'. The condition is evaluated after group_vars are
+# loaded, so the platform default in node.yml applies.
+#
+# While it runs an imported playbook's plays, Ansible loads group_vars from
+# the imported playbook's own directory, not from the directory of
+# build.yml. platforms/incus/group_vars is a link to ../../group_vars, so
+# these plays see group_vars/all/. Every platform directory needs that link.
+
+- name: Create the node on Incus
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Create the node on Incus
+      when: platform == 'incus'
+      block:
+        - name: Look for the instance
+          ansible.builtin.command:
+            cmd: incus query /1.0/instances/{{ incus_instance }}
+          register: instance
+          changed_when: false
+          failed_when: false
+
+        - name: Refuse an instance uc-raw-node does not own
+          ansible.builtin.assert:
+            that:
+              - (instance.stdout | from_json).config[uc_raw_node_owner_key] | default('') == uc_raw_node_owner
+            fail_msg: "{{ incus_instance }} exists but was not created by {{ uc_raw_node_owner }}, so it is left alone."
+            quiet: true
+          when: instance.rc == 0
+
+        - name: Launch the instance with the ownership marker
+          ansible.builtin.command:
+            cmd: >-
+              incus launch {{ incus_image }} {{ incus_instance }}
+              --config {{ uc_raw_node_owner_key }}={{ uc_raw_node_owner }}
+          changed_when: true
+          when: instance.rc != 0
+
+        - name: Add the node to the inventory
+          ansible.builtin.add_host:
+            name: "{{ node_fqdn }}"
+            groups: raw_node
+            ansible_connection: community.general.incus
+            ansible_incus_host: "{{ incus_instance }}"
+          changed_when: false
+
+        - name: Wait for the node to boot
+          ansible.builtin.command:
+            cmd: incus exec {{ incus_instance }} -- systemctl is-system-running --wait
+          register: boot
+          changed_when: false
+          failed_when: boot.stdout not in ['running', 'degraded']

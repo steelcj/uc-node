@@ -1,0 +1,16 @@
+---
+# inventory/group_vars/all/boot.yml
+#
+# How the build waits for the node to boot, on every platform, and what it
+# looks for after the reboot. Used by tasks/wait-for-boot.yml and the
+# Reboot play in build.yml.
+
+# Seconds to wait for systemd on the node to report running or degraded.
+# After that the build stops, and shows what the node is still waiting for,
+# so a build never hangs.
+boot_timeout: 300
+
+# The text systemd logs when it finds an ordering cycle and skips a unit to
+# break it. The skipped unit can be either side of the cycle, including the
+# firewall, so the build fails if this appears in the boot after the reboot.
+boot_cycle_pattern: ordering cycle

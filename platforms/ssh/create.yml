@@ -1,0 +1,159 @@
+---
+# Reach a Debian 13 host over SSH, check that uc-raw-node owns it or adopt
+# it when told to, and add it to the raw_node and platform_ssh groups.
+#
+# build.yml imports this file whatever the node's platform. The play on
+# localhost keeps its tasks in a block with when: platform == 'ssh', since a
+# play cannot carry when. The play on the node targets platform_ssh, which
+# only this file fills.
+#
+# Each login is tried once, and a failed login is never retried in a loop:
+# OpenSSH 10's PerSourcePenalties blocks an address that keeps failing to
+# log in, which would lock the controller out. For the same reason the node
+# play uses raw tasks rather than wait_for_connection, which retries until
+# it times out, and needs Python, which bootstrap installs later. The
+# ownership check only reads a file, so it runs before the shared boot wait
+# in build.yml, and nothing is changed on a node that is refused.
+
+- name: Connect to the node over SSH
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # The ssh command line of a probe, without the user, address and port.
+    ssh_probe_command: "{{ ['ssh'] + (ssh_client_options + ['BatchMode=yes', 'ConnectTimeout=' ~ ssh_probe_timeout, 'ConnectionAttempts=1']) | map('regex_replace', '^', '-o') }}"
+    ssh_host_key_message: >-
+      The host key of {{ node_address }} is not in known_hosts, or does not
+      match the one there, so nothing was changed. Check the key against the
+      one the provider's console shows, then add it to known_hosts under
+      {{ node_address }}, for example from ssh-keyscan -t ed25519
+      {{ node_address }}. uc-raw-node looks the key up under the address,
+      whatever the port.
+
+  tasks:
+    - name: Connect to the node over SSH
+      when: platform == 'ssh'
+      block:
+        - name: Check that host key checking is on
+          ansible.builtin.assert:
+            that:
+              - lookup('ansible.builtin.config', 'host_key_checking', plugin_type='connection', plugin_name='ssh') | bool
+            fail_msg: "Ansible's SSH host key checking is turned off, for example by ANSIBLE_HOST_KEY_CHECKING=False. uc-raw-node builds only with it on."
+            quiet: true
+
+        - name: Try the contract connection
+          ansible.builtin.command:
+            argv: "{{ ssh_probe_command + ['-p', ssh_port | string, '-l', initial_username, node_address, 'true'] }}"
+          register: contract_probe
+          changed_when: false
+          failed_when: false
+
+        - name: Stop if the host key is unknown or has changed
+          ansible.builtin.assert:
+            that:
+              - "'Host key verification failed' not in contract_probe.stderr"
+            fail_msg: "{{ ssh_host_key_message }}"
+            quiet: true
+
+        - name: Try the first-contact connection, once
+          ansible.builtin.command:
+            argv: "{{ ssh_probe_command + ['-p', ssh_first_contact_port | string, '-l', ssh_first_contact_user, node_address, 'true'] }}"
+          register: first_contact_probe
+          changed_when: false
+          failed_when: false
+          when: contract_probe.rc != 0
+
+        - name: Stop if the host key is unknown or has changed
+          ansible.builtin.assert:
+            that:
+              - "'Host key verification failed' not in first_contact_probe.stderr"
+            fail_msg: "{{ ssh_host_key_message }}"
+            quiet: true
+          when: contract_probe.rc != 0
+
+        - name: Stop if neither connection works
+          ansible.builtin.assert:
+            that:
+              - contract_probe.rc == 0 or first_contact_probe.rc == 0
+            fail_msg: >-
+              Could not log in to {{ node_address }} as {{ initial_username }}
+              on port {{ ssh_port }} ({{ contract_probe.stderr_lines | default([]) | last | default('no message') }}),
+              or as {{ ssh_first_contact_user }} on port {{ ssh_first_contact_port }}
+              ({{ first_contact_probe.stderr_lines | default([]) | last | default('no message') }}).
+              Each was tried once and is not retried, since repeated failed
+              logins make OpenSSH 10 block this address. Check the address,
+              the key and the port, then run again.
+            quiet: true
+
+        - name: Note which connection works
+          ansible.builtin.set_fact:
+            uc_raw_node_contract_connection: "{{ contract_probe.rc == 0 }}"
+
+        # steelcj.foomuuri runs before robertdebock.openssh, so with a new
+        # port, the firewall would drop new connections to the first-contact
+        # port before sshd moves. Changing the port is not supported yet.
+        - name: Refuse a port change on first contact
+          ansible.builtin.assert:
+            that:
+              - uc_raw_node_contract_connection or (ssh_port | int) == (ssh_first_contact_port | int)
+            fail_msg: >-
+              {{ node_address }} answers only on the first-contact port
+              {{ ssh_first_contact_port }}, and the node definition sets
+              ssh_port {{ ssh_port }}. Moving the port in the same build as
+              first contact moves the firewall and sshd while Ansible is
+              connected on {{ ssh_first_contact_port }}, so nothing was
+              changed. Build first with ssh_port {{ ssh_first_contact_port }}.
+            quiet: true
+
+        - name: Add the node to the inventory
+          ansible.builtin.add_host:
+            name: "{{ node_fqdn }}"
+            groups:
+              - raw_node
+              - platform_ssh
+            ansible_connection: ansible.builtin.ssh
+            ansible_host: "{{ node_address }}"
+            ansible_user: "{{ initial_username if uc_raw_node_contract_connection else ssh_first_contact_user }}"
+            ansible_port: "{{ ssh_port if uc_raw_node_contract_connection else ssh_first_contact_port }}"
+            ansible_ssh_common_args: "{{ ssh_client_options | map('regex_replace', '^', '-o ') | join(' ') }}"
+            ansible_ssh_host_key_checking: true
+            # Root needs no become, and sudo may not be installed yet.
+            ansible_become: "{{ uc_raw_node_contract_connection }}"
+          changed_when: false
+
+- name: Check that uc-raw-node owns the node
+  hosts: platform_ssh
+  gather_facts: false
+
+  tasks:
+    - name: Read the ownership marker
+      ansible.builtin.raw: cat {{ uc_raw_node_owner_file | quote }}
+      register: owner_marker
+      become: false
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse a node marked by someone else
+      ansible.builtin.assert:
+        that:
+          - owner_marker.rc != 0 or owner_marker.stdout | trim == uc_raw_node_owner
+        fail_msg: "{{ uc_raw_node_owner_file }} on {{ ansible_host }} does not hold {{ uc_raw_node_owner }}, so the host is left alone."
+        quiet: true
+
+    - name: Refuse a node uc-raw-node has not adopted
+      ansible.builtin.assert:
+        that:
+          - owner_marker.rc == 0 or uc_raw_node_adopt | bool
+        fail_msg: >-
+          {{ ansible_host }} has no {{ uc_raw_node_owner_file }}, so nothing was
+          changed. Adopt only the host that was ordered for {{ inventory_hostname }}:
+          if this is that host, run again with -e uc_raw_node_adopt=true.
+        quiet: true
+
+    - name: Write the ownership marker
+      ansible.builtin.raw: >-
+        install -d -m 0755 {{ uc_raw_node_owner_file | dirname | quote }} &&
+        printf '%s\n' {{ uc_raw_node_owner | quote }} > {{ uc_raw_node_owner_file | quote }} &&
+        chmod 0644 {{ uc_raw_node_owner_file | quote }}
+      changed_when: true
+      when: owner_marker.rc != 0

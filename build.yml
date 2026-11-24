@@ -78,12 +78,26 @@
         quiet: true
       when: platform == 'incus'
 
-# Every platform's plays are imported, whatever the node's platform. Each
-# play inside runs its tasks only when platform names its platform. A
-# templated import path would be resolved before group_vars are loaded, so
-# the platform default in node.yml would not apply.
+# Every platform's plays are imported, whatever the node's platform. A play
+# on localhost runs its tasks only when platform names its platform. A play
+# on the node targets the platform's own group, such as platform_ssh, which
+# only that platform's create play fills. A templated import path would be
+# resolved before group_vars are loaded, so the platform default in node.yml
+# would not apply.
 - name: Create the node on Incus
   ansible.builtin.import_playbook: platforms/incus/create.yml
+
+- name: Connect to the node over SSH
+  ansible.builtin.import_playbook: platforms/ssh/create.yml
+
+# On every platform, once the node is in the inventory.
+- name: Wait for the node to finish booting
+  hosts: raw_node
+  gather_facts: false
+
+  tasks:
+    - name: Wait for the node to finish booting
+      ansible.builtin.import_tasks: tasks/wait-for-boot.yml
 
 - name: Bootstrap
   hosts: raw_node
@@ -91,6 +105,9 @@
 
   roles:
     - role: robertdebock.bootstrap
+
+- name: Prepare the node on the ssh platform
+  ansible.builtin.import_playbook: platforms/ssh/prepare.yml
 
 - name: Configure the node to contract
   hosts: raw_node
@@ -116,6 +133,9 @@
         line: "127.0.1.1\t{{ node_fqdn }} {{ node_hostname }}"
         insertafter: '^127\.0\.0\.1\s'
 
+- name: Switch to the contract connection on the ssh platform
+  ansible.builtin.import_playbook: platforms/ssh/switch.yml
+
 - name: Reboot
   hosts: raw_node
   gather_facts: false
@@ -127,3 +147,44 @@
     - name: Reboot the node
       ansible.builtin.reboot:
         reboot_timeout: 600
+
+    - name: Wait for the node to finish booting again
+      ansible.builtin.import_tasks: tasks/wait-for-boot.yml
+
+    # Only systemd's own messages: Ansible logs this task's arguments to the
+    # journal too, and they hold the pattern. systemd's early messages reach
+    # the journal from the kernel log, without _PID=1, so the filter is on
+    # SYSLOG_IDENTIFIER.
+    - name: Read ordering cycles from this boot's journal
+      ansible.builtin.command:
+        argv: [journalctl, -b, SYSLOG_IDENTIFIER=systemd, --no-pager, -o, cat, --grep, "{{ boot_cycle_pattern }}"]
+      register: journal_cycles
+      changed_when: false
+      failed_when: journal_cycles.rc not in [0, 1]
+
+    # In an Incus container, systemd logs an ordering cycle to the console
+    # before journald has started, so the journal never has it. The console
+    # log holds the boot that just happened.
+    - name: Read ordering cycles from the Incus console log
+      ansible.builtin.command:
+        argv: [incus, console, --show-log, "{{ incus_instance }}"]
+      register: console_log
+      delegate_to: localhost
+      changed_when: false
+      when: platform == 'incus'
+
+    - name: Collect the ordering cycle lines
+      ansible.builtin.set_fact:
+        boot_cycles: "{{ (journal_cycles.stdout_lines + (console_log.stdout_lines | default([]))) | select('search', boot_cycle_pattern, ignorecase=true) | map('trim') | unique | list }}"
+
+    - name: Show the ordering cycles
+      ansible.builtin.debug:
+        msg: "{{ boot_cycles }}"
+      when: boot_cycles | length > 0
+
+    - name: Stop if systemd found an ordering cycle
+      ansible.builtin.assert:
+        that:
+          - boot_cycles | length == 0
+        fail_msg: "systemd found an ordering cycle while booting {{ inventory_hostname }}, and skipped a unit to break it. The skipped unit may be the firewall. The task above shows the cycle."
+        quiet: true

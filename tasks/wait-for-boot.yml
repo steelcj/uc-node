@@ -1,0 +1,34 @@
+---
+# Wait until systemd on the node reports running or degraded, for at most
+# boot_timeout seconds. Otherwise show the jobs it is still waiting for and
+# any ordering cycle in this boot's journal, then stop, so a build never
+# hangs. raw, since Python may not be installed yet.
+
+- name: Wait for the node to finish booting
+  ansible.builtin.raw: timeout {{ boot_timeout | int }} systemctl is-system-running --wait
+  register: boot_state
+  changed_when: false
+  failed_when: false
+
+- name: Read what the node is still waiting for
+  ansible.builtin.raw: >-
+    export SYSTEMD_COLORS=0;
+    echo "systemctl is-system-running: $(systemctl is-system-running)";
+    systemctl list-jobs --no-pager;
+    journalctl -b SYSLOG_IDENTIFIER=systemd --no-pager -o cat --grep {{ boot_cycle_pattern | quote }}
+  register: boot_waiting
+  changed_when: false
+  failed_when: false
+  when: boot_state.stdout | trim not in ['running', 'degraded']
+
+- name: Show what the node is still waiting for
+  ansible.builtin.debug:
+    msg: "{{ boot_waiting.stdout_lines | map('trim') | list }}"
+  when: boot_state.stdout | trim not in ['running', 'degraded']
+
+- name: Stop if the node has not finished booting
+  ansible.builtin.assert:
+    that:
+      - boot_state.stdout | trim in ['running', 'degraded']
+    fail_msg: "{{ inventory_hostname }} has not finished booting within {{ boot_timeout }} seconds, so the build stops. The task above shows the jobs it is waiting for, and any ordering cycle systemd found."
+    quiet: true

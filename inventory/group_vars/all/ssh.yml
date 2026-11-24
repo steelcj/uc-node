@@ -1,0 +1,52 @@
+---
+# inventory/group_vars/all/ssh.yml
+#
+# Settings for the ssh platform: a Debian 13 host reached over SSH, such as
+# a VPS. Used by the plays in platforms/ssh/.
+
+# The user and port of the first connection to a host that does not meet
+# the contract yet: root, with the key the provider installed, on the
+# standard port.
+ssh_first_contact_user: root
+ssh_first_contact_port: 22
+
+# Whether this build may write the ownership marker on a host that has
+# none. Give -e uc_raw_node_adopt=true on the first build of a host you
+# ordered, and never otherwise.
+uc_raw_node_adopt: false
+
+# Options for every SSH connection to the node, the probes in
+# platforms/ssh/create.yml and Ansible's own. Host key checking stays
+# strict. The host key is looked up under node_address whatever the port,
+# so one known_hosts line covers first contact and the contract port. Only
+# the identities named in ssh_config, or the default identity files, are
+# offered, never every key in the agent.
+ssh_client_options:
+  - IdentitiesOnly=yes
+  - StrictHostKeyChecking=yes
+  - "HostKeyAlias={{ node_address }}"
+
+# Seconds a probe waits for the node to answer before it gives up.
+ssh_probe_timeout: 10
+
+# The sshd options the raw node contract controls. A file in
+# /etc/ssh/sshd_config.d/ that sets one of them is removed.
+ssh_contract_options:
+  - PasswordAuthentication
+  - PermitRootLogin
+  - Port
+
+# Written to /etc/cloud/cloud.cfg.d/99-uc-raw-node.cfg when cloud-init is
+# installed, so it does not reset the hostname or /etc/hosts at boot if it
+# is ever turned back on.
+ssh_cloud_init_settings:
+  preserve_hostname: true
+  manage_etc_hosts: false
+
+# Created when cloud-init is installed, so cloud-init does not run after
+# the first boot. cloud-init 25 orders its network stage before
+# sysinit.target, and Foomuuri's units are ordered after it, so with both,
+# systemd breaks the ordering cycle by skipping cloud-init's network stage,
+# and the rest of cloud-init waits for it forever. The network
+# configuration cloud-init wrote at first boot stays in place.
+ssh_cloud_init_disabled_file: /etc/cloud/cloud-init.disabled

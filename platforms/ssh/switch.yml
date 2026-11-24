@@ -1,0 +1,41 @@
+---
+# Move to the contract connection once the configure play has run, so the
+# reboot, and everything after it, runs as the initial user on ssh_port with
+# become. Root can no longer log in over SSH once robertdebock.openssh has
+# set PermitRootLogin no. Targets platform_ssh, which only
+# platforms/ssh/create.yml fills, so it does nothing on other platforms.
+#
+# become needs the initial user's password from here on, so every build of
+# an ssh node, the first included, is run with --ask-become-pass.
+
+- name: Switch to the contract connection
+  hosts: platform_ssh
+  gather_facts: false
+
+  tasks:
+    - name: Use the initial user on the contract port, with become
+      ansible.builtin.set_fact:
+        ansible_user: "{{ initial_username }}"
+        ansible_port: "{{ ssh_port }}"
+        ansible_become: true
+
+    - name: Reconnect
+      ansible.builtin.meta: reset_connection
+
+    # Done here rather than in prepare.yml: until the contract connection
+    # has worked, root's key is the only way back in over SSH. Root cannot
+    # log in over SSH under the contract, and an empty file keeps any key
+    # from being used if that changes.
+    - name: Look for root's authorized_keys
+      ansible.builtin.stat:
+        path: /root/.ssh/authorized_keys
+      register: root_keys
+
+    - name: Empty root's authorized_keys
+      ansible.builtin.copy:
+        dest: /root/.ssh/authorized_keys
+        content: ""
+        owner: root
+        group: root
+        mode: "0600"
+      when: root_keys.stat.exists

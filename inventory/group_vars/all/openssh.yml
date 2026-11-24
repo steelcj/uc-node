@@ -4,3 +4,10 @@ openssh_port: "{{ ssh_port }}"
 openssh_permit_root_login: "no"
 openssh_password_authentication: "no"
 openssh_challenge_response_authentication: "no"
+
+# robertdebock.openssh writes "AuthorizedKeysCommand none" by default, and
+# sshd does not read none as unset for this option: when no key in
+# authorized_keys matches, it tries to run none, and logs "AuthorizedKeysCommand
+# path is not absolute". /usr/bin/true is an absolute path that prints no
+# keys, so only authorized_keys is used.
+openssh_authorized_keys_command: /usr/bin/true

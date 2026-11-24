@@ -45,10 +45,3 @@
             ansible_connection: community.general.incus
             ansible_incus_host: "{{ incus_instance }}"
           changed_when: false
-
-        - name: Wait for the node to boot
-          ansible.builtin.command:
-            cmd: incus exec {{ incus_instance }} -- systemctl is-system-running --wait
-          register: boot
-          changed_when: false
-          failed_when: boot.stdout not in ['running', 'degraded']

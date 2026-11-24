@@ -1,0 +1,56 @@
+---
+# Remove what a provider's image puts on the node that would break the
+# contract. Runs after bootstrap, so Python is installed, and before the
+# configure play. Targets platform_ssh, which only platforms/ssh/create.yml
+# fills, so it does nothing on other platforms.
+
+- name: Prepare the node for the contract
+  hosts: platform_ssh
+  gather_facts: false
+
+  tasks:
+    # robertdebock.openssh writes an sshd_config without an Include line,
+    # so these files stop being read once it has run. They are removed all
+    # the same, so a later Include cannot bring them back.
+    - name: Find sshd drop-ins that set an option the contract controls
+      ansible.builtin.find:
+        paths: /etc/ssh/sshd_config.d
+        file_type: file
+        contains: '(?i)^\s*({{ ssh_contract_options | join("|") }})\s'
+      register: sshd_dropins
+
+    - name: Remove them
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ sshd_dropins.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Look for cloud-init
+      ansible.builtin.stat:
+        path: /usr/bin/cloud-init
+      register: cloud_init
+
+    - name: Keep cloud-init away from the hostname and /etc/hosts
+      ansible.builtin.copy:
+        dest: /etc/cloud/cloud.cfg.d/99-uc-raw-node.cfg
+        content: |
+          # Written by uc-raw-node, from ssh_cloud_init_settings.
+          {{ ssh_cloud_init_settings | to_nice_yaml(indent=2) }}
+        owner: root
+        group: root
+        mode: "0644"
+      when: cloud_init.stat.exists
+
+    # See ssh_cloud_init_disabled_file in inventory/group_vars/all/ssh.yml.
+    - name: Stop cloud-init running after the first boot
+      ansible.builtin.copy:
+        dest: "{{ ssh_cloud_init_disabled_file }}"
+        content: |
+          # Created by uc-raw-node: cloud-init and Foomuuri form a systemd
+          # ordering cycle, so cloud-init does not run after the first boot.
+        owner: root
+        group: root
+        mode: "0644"
+      when: cloud_init.stat.exists

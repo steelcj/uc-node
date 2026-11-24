@@ -220,11 +220,14 @@ def ask(label, name, default, check):
 
 def ask_sources(label, default):
     """Like ask(), but blank is a valid answer: it keeps the default, and an
-    empty default means any source."""
+    empty default means any source. "any" clears a default that is not
+    empty."""
     while True:
         answer = input(f"{label} [{' '.join(default)}]: ").strip()
         if not answer:
             return default
+        if answer.lower() == "any":
+            return []
         try:
             return check_sources(answer)
         except Invalid as error:
@@ -273,6 +276,8 @@ def checked(name, value, check):
         sys.exit(f"new-node: {name} in {show(DEFAULTS_FILE)}: {error}.")
 
 
+SOURCES_LABEL = "Allow SSH only from (addresses or networks, blank for the default, any for any)"
+
 QUESTIONS = [
     ("client_domain", "Client domain", check_domain),
     ("node_label", f"Node label ({', '.join(NODE_LABELS)})", check_label),
@@ -280,7 +285,7 @@ QUESTIONS = [
     ("initial_user", "Initial user", check_user),
     ("ssh_public_key", "SSH public key", check_key),
     ("ssh_port", "SSH port", check_port),
-    ("ssh_sources", "Allow SSH only from (addresses or networks, blank for any)", check_sources),
+    ("ssh_sources", SOURCES_LABEL, check_sources),
 ]
 
 
@@ -301,6 +306,20 @@ def ask_platform_fields(platform):
     return values
 
 
+def confirm_sources(values):
+    """On the ssh platform, the firewall allows SSH only from ssh_sources, so
+    a list without this controller's public address locks the build out.
+    Ask until the list is confirmed, or empty."""
+    while values["platform"] == "ssh" and values["ssh_sources"]:
+        print(
+            f"  The firewall will allow SSH only from {' '.join(values['ssh_sources'])}. "
+            "This must include this controller's own public address, or the build locks itself out."
+        )
+        if ask_yes("Does it include this controller's public address?", False):
+            return
+        values["ssh_sources"] = ask_sources(SOURCES_LABEL, values["ssh_sources"])
+
+
 def gather(defaults):
     use_defaults = defaults is not None and ask_yes(f"Use defaults from {show(DEFAULTS_FILE)}?", True)
     defaults = defaults or {}
@@ -316,6 +335,8 @@ def gather(defaults):
             values[name] = ask(label, name, default, check)
         if name == "platform":
             values.update(ask_platform_fields(values[name]))
+
+    confirm_sources(values)
 
     has_hashes = "root_password_hash" in defaults and "initial_password_hash" in defaults
     if has_hashes and (use_defaults or ask_yes("Use the default passwords?", True)):

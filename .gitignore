@@ -1,4 +1,5 @@
 *.retry
+resume.txt
 .ansible/
 __pycache__/
 .ruff_cache/

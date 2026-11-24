@@ -6,7 +6,7 @@
 # These are not defaults. Do not set them in a node definition: a value
 # passed with -e would override the calculation and break the naming rule.
 
-# The fully qualified domain name, for example prod.imata.ca. It is the
+# The fully qualified domain name, for example prod.example.org. It is the
 # node's name in the inventory, and the FQDN set on the node.
 node_fqdn: "{{ node_label }}.{{ client_domain }}"
 

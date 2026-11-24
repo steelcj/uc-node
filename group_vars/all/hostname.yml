@@ -1,4 +1,8 @@
 ---
-# robertdebock.hostname sets the hostname from the node definition's
-# hostname. The node is rebooted once, on purpose, in the Reboot play.
+# The hostname robertdebock.hostname sets: the leftmost label of node_fqdn,
+# calculated in names.yml. The role does not write /etc/hosts, so the
+# configure play in build.yml adds node_fqdn there, for hostname -f.
+hostname: "{{ node_hostname }}"
+
+# The node is rebooted once, on purpose, in the Reboot play.
 hostname_reboot: false

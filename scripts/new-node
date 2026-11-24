@@ -6,7 +6,8 @@ Run it from the repository directory:
     scripts/new-node
 
 It reads its defaults from ~/.secrets/uc-raw/defaults.yml, if that file
-exists, and writes ~/.secrets/uc-raw/<client domain>.yml. Passwords are read
+exists, and writes ~/.secrets/uc-raw/<node label>.<client domain>.yml, named
+after the node's fully qualified domain name. Passwords are read
 from the terminal and only their SHA-512 crypt hashes are written. Both files
 are kept at mode 0600 in a directory of mode 0700.
 """
@@ -25,9 +26,11 @@ import yaml
 
 SECRETS_DIR = Path.home() / ".secrets" / "uc-raw"
 DEFAULTS_FILE = SECRETS_DIR / "defaults.yml"
+LABELS_FILE = Path(__file__).resolve().parent.parent / "group_vars" / "all" / "labels.yml"
 
 # Used when a value is in neither the defaults file nor typed in.
 FALLBACKS = {
+    "node_label": "raw",
     "initial_user": "initial",
     "ssh_public_key": "~/.ssh/id_ed25519.pub",
     "ssh_port": 22,
@@ -70,6 +73,18 @@ def load_defaults():
     return data
 
 
+def load_labels():
+    """The allowed node labels, from group_vars/all/labels.yml."""
+    with LABELS_FILE.open() as handle:
+        labels = (yaml.safe_load(handle) or {}).get("node_labels")
+    if not isinstance(labels, list) or not labels:
+        sys.exit(f"new-node: {show(LABELS_FILE)} must hold a list called node_labels.")
+    return [str(label) for label in labels]
+
+
+NODE_LABELS = load_labels()
+
+
 def no_quote_or_newline(value):
     if "'" in value or "\n" in value:
         raise Invalid("it may not contain a single quote or a newline")
@@ -80,7 +95,14 @@ def check_domain(value):
     value = no_quote_or_newline(value.strip().lower())
     labels = value.split(".")
     if len(value) > 253 or len(labels) < 2 or not all(DOMAIN_LABEL.match(label) for label in labels):
-        raise Invalid("use DNS labels of letters, digits and hyphens, separated by dots, for example vishpala.com")
+        raise Invalid("use DNS labels of letters, digits and hyphens, separated by dots, for example example.org")
+    return value
+
+
+def check_label(value):
+    value = str(value).strip().lower()
+    if value not in NODE_LABELS:
+        raise Invalid(f"use one of {', '.join(NODE_LABELS)}")
     return value
 
 
@@ -227,11 +249,16 @@ def checked(name, value, check):
 
 QUESTIONS = [
     ("client_domain", "Client domain", check_domain),
+    ("node_label", f"Node label ({', '.join(NODE_LABELS)})", check_label),
     ("initial_user", "Initial user", check_user),
     ("ssh_public_key", "SSH public key", check_key),
     ("ssh_port", "SSH port", check_port),
     ("ssh_sources", "Allow SSH only from (addresses or networks, blank for any)", check_sources),
 ]
+
+
+# Asked even when the defaults file is used.
+ALWAYS_ASKED = ("node_label",)
 
 
 def gather(defaults):
@@ -241,7 +268,9 @@ def gather(defaults):
 
     for name, label, check in QUESTIONS:
         default = defaults.get(name, FALLBACKS.get(name))
-        if use_defaults and name in defaults:
+        # The label is what tells two nodes of one client apart, so it is
+        # always asked, with the default only offered.
+        if use_defaults and name in defaults and name not in ALWAYS_ASKED:
             values[name] = checked(name, defaults[name], check)
         elif name == "ssh_sources":
             values[name] = ask_sources(label, check(default))
@@ -262,7 +291,8 @@ def gather(defaults):
 
 def node_definition(values):
     return {
-        "hostname": values["client_domain"],
+        "client_domain": values["client_domain"],
+        "node_label": values["node_label"],
         "root_password_hash": values["root_password_hash"],
         "initial_username": values["initial_user"],
         "initial_password_hash": values["initial_password_hash"],
@@ -294,7 +324,7 @@ def main():
         return 0 if sys.argv[1] in ("-h", "--help") else 2
     defaults = load_defaults()
     values = gather(defaults)
-    path = SECRETS_DIR / f"{values['client_domain']}.yml"
+    path = SECRETS_DIR / f"{values['node_label']}.{values['client_domain']}.yml"
     question = "Replace" if path.exists() else "Write"
     if not ask_yes(f"{question} {show(path)}?", False):
         print("Nothing written.")

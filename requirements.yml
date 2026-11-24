@@ -36,6 +36,3 @@ roles:
   # Key-only SSH, no root login, on ssh_port.
   - name: robertdebock.openssh
     version: "5.1.0"
-  # Reboots so the first-boot unit writes the confirmation.
-  - name: robertdebock.reboot
-    version: "3.4.1"

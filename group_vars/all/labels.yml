@@ -1,0 +1,11 @@
+---
+# group_vars/all/labels.yml
+#
+# The labels a node can have. A node definition's node_label must be one of
+# them. build.yml checks it before anything is created, and scripts/new-node
+# offers only these.
+node_labels:
+  - raw
+  - dev
+  - stage
+  - prod

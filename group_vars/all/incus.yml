@@ -2,7 +2,7 @@
 # The image a new node is launched from.
 incus_image: images:debian/13
 
-# The Incus instance name: the node's fully qualified domain name,
-# raw.<client domain>, with dots replaced by hyphens, since Incus allows only
-# letters, digits and hyphens in an instance name.
-incus_instance: "{{ node_name }}"
+# The Incus instance name: the node's fully qualified domain name, node_fqdn,
+# with dots replaced by hyphens, since Incus allows only letters, digits and
+# hyphens in an instance name. For prod.example.org: prod-example-org.
+incus_instance: "{{ node_fqdn | replace('.', '-') }}"

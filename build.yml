@@ -1,5 +1,53 @@
 #!/usr/bin/env ansible-playbook
 ---
+- name: Check the node definition
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # The fields every node definition must set. They have no default.
+    node_required_fields:
+      - client_domain
+      - root_password_hash
+      - initial_username
+      - initial_password_hash
+      - ssh_public_key
+
+  tasks:
+    # group_vars/all/hostname.yml sets hostname from node_hostname, so a
+    # different value can only come from a node definition written before
+    # client_domain replaced hostname.
+    - name: Refuse a node definition that still has hostname
+      ansible.builtin.assert:
+        that:
+          - hostname == node_hostname
+        fail_msg: "The node definition sets hostname, which is no longer used. Rename hostname to client_domain in the node definition."
+        quiet: true
+
+    - name: Check that the required fields are present
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.vars', item, default='') | string | length > 0
+        fail_msg: "The node definition has no {{ item }}."
+        quiet: true
+      loop: "{{ node_required_fields }}"
+
+    - name: Check client_domain
+      ansible.builtin.assert:
+        that:
+          - client_domain is string
+          - client_domain | length <= 253
+          - client_domain is ansible.builtin.match('^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$')
+        fail_msg: "client_domain must be DNS labels of lowercase letters, digits and hyphens, separated by dots, for example example.org. It is {{ client_domain }}."
+        quiet: true
+
+    - name: Check node_label
+      ansible.builtin.assert:
+        that:
+          - node_label in node_labels
+        fail_msg: "node_label must be one of {{ node_labels | join(', ') }}. It is {{ node_label }}."
+        quiet: true
+
 - name: Create the node
   hosts: localhost
   gather_facts: false
@@ -30,9 +78,10 @@
 
     - name: Add the node to the inventory
       ansible.builtin.add_host:
-        name: "{{ incus_instance }}"
+        name: "{{ node_fqdn }}"
         groups: raw_node
         ansible_connection: community.general.incus
+        ansible_incus_host: "{{ incus_instance }}"
       changed_when: false
 
     - name: Wait for the node to boot
@@ -62,12 +111,25 @@
     - role: steelcj.foomuuri
     - role: robertdebock.openssh
 
+  tasks:
+    # robertdebock.hostname sets only the hostname. Debian resolves its own
+    # fully qualified domain name from the 127.0.1.1 line in /etc/hosts, so
+    # hostname -f returns node_fqdn once that line names it.
+    - name: Name the fully qualified domain name in /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s'
+        line: "127.0.1.1\t{{ node_fqdn }} {{ node_hostname }}"
+        insertafter: '^127\.0\.0\.1\s'
+
 - name: Reboot
   hosts: raw_node
   gather_facts: false
 
-  roles:
-    # reboot_requirements is set here, not in group_vars, because the role
-    # sets it in its own vars/main.yml, which group_vars cannot override.
-    - role: robertdebock.reboot
-      reboot_requirements: []
+  tasks:
+    # The build reboots every time, on purpose. ansible.builtin.reboot fails
+    # if the boot ID has not changed within reboot_timeout, so a reboot that
+    # did not happen is never reported as done.
+    - name: Reboot the node
+      ansible.builtin.reboot:
+        reboot_timeout: 600

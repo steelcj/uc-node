@@ -1,0 +1,73 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Create the node
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Look for the instance
+      ansible.builtin.command:
+        cmd: incus query /1.0/instances/{{ incus_instance }}
+      register: instance
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse an instance uc-raw-node does not own
+      ansible.builtin.assert:
+        that:
+          - (instance.stdout | from_json).config['user.uc-raw-node.owner'] | default('') == 'uc-raw-node'
+        fail_msg: "{{ incus_instance }} exists but was not created by uc-raw-node, so it is left alone."
+        quiet: true
+      when: instance.rc == 0
+
+    - name: Launch the instance with the ownership marker
+      ansible.builtin.command:
+        cmd: >-
+          incus launch {{ incus_image }} {{ incus_instance }}
+          --config user.uc-raw-node.owner=uc-raw-node
+      changed_when: true
+      when: instance.rc != 0
+
+    - name: Add the node to the inventory
+      ansible.builtin.add_host:
+        name: "{{ incus_instance }}"
+        groups: raw_node
+        ansible_connection: community.general.incus
+      changed_when: false
+
+    - name: Wait for the node to boot
+      ansible.builtin.command:
+        cmd: incus exec {{ incus_instance }} -- systemctl is-system-running --wait
+      register: boot
+      changed_when: false
+      failed_when: boot.stdout not in ['running', 'degraded']
+
+- name: Bootstrap
+  hosts: raw_node
+  gather_facts: false
+
+  roles:
+    - role: robertdebock.bootstrap
+
+- name: Configure the node to contract
+  hosts: raw_node
+  gather_facts: true
+
+  roles:
+    - role: robertdebock.hostname
+    - role: robertdebock.epel
+      when: ansible_facts['os_family'] == 'RedHat'
+#    - role: robertdebock.software # if additional packaged software is ever required
+    - role: robertdebock.users
+    - role: steelcj.foomuuri
+    - role: robertdebock.openssh
+
+- name: Reboot
+  hosts: raw_node
+  gather_facts: false
+
+  roles:
+    # reboot_requirements is set here, not in group_vars, because the role
+    # sets it in its own vars/main.yml, which group_vars cannot override.
+    - role: robertdebock.reboot
+      reboot_requirements: []

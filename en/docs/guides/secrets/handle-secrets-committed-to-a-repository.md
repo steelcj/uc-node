@@ -9,6 +9,24 @@ language: en-CA
 
 # Handle Secrets Committed to a Repository
 
+## Quick scrub for non secrets
+
+```bash
+git fetch origin
+git reset --hard origin/main            # your main still has the old commits
+git tag -f -a v0.1.0 -m "version 0.1.0" 14b5cd1
+git push --force origin v0.1.0
+git ls-remote origin | grep -E 'main|v0.1.0'   # both should show 14b5cd1
+```
+
+Output example:
+
+```bash
+
+```
+
+
+
 A secret that reaches a git repository stays in its history after the file is deleted or edited, and once pushed it may already be in other clones, forks, caches and synced copies. This procedure puts the order of work right: make the secret useless first, then remove it from history, then make sure it cannot happen the same way again.
 
 ## What counts as a secret
@@ -50,6 +68,23 @@ git log --all --oneline -S "$SECRET"
 git grep -F "$SECRET" $(git rev-list --all) -- | cut -d: -f1-2 | sort -u
 unset SECRET
 ```
+
+Example
+
+```bash
+read -rs HW25v
+git log --all --oneline -S "HW25v"
+git grep -F "HW25v" $(git rev-list --all) -- | cut -d: -f1-2 | sort -u
+unset SECRET
+```
+
+
+
+```bash
+f54a45b (HEAD -> main, origin/main) prep for adding vps support
+```
+
+
 
 `read -rs` keeps the value out of your shell history and off the screen. The first command lists the commits that added or removed it, the second the commit and file pairs that contain it.
 

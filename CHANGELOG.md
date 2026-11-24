@@ -6,6 +6,10 @@ Write entries in the Unreleased section below as work happens. `scripts/cut-rele
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-11-23
+
+### Readded repo files
+
 ## [0.0.1] - 2026-11-23
 
 ### Recreated respository

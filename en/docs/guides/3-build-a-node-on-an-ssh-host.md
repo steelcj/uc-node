@@ -1,7 +1,7 @@
 ---
 title: Build a Node on an SSH Host
 description: How to build a raw node on a Debian 13 host reached over SSH, such as a VPS, whether the host is a fresh install or an existing node, how to check it, and what to do when something goes wrong.
-version: 0.1.1
+version: 0.1.2
 status: provisional
 date: 2026-11-24
 language: en-CA
@@ -246,7 +246,8 @@ Then the checks that matter most on a remote host:
 | :-- | :-- | :-- |
 | Root cannot log in | `ssh -p 2222 root@203.0.113.10 true` | `Permission denied` |
 | Passwords are refused | `ssh -o PubkeyAuthentication=no -p 2222 initial@203.0.113.10 true` | `Permission denied` |
-| The console works | Log in as root through the provider's web console | Works |
+| Root's password is set | ssh -t -p 2222 initial@203.0.113.10 'su - root -c "id -un"' | `root` |
+| The console works | Log in as root through the provider's web console |  |
 
 Each refused login counts towards PerSourcePenalties, so run these once.
 
@@ -421,5 +422,6 @@ The node booted, but systemd skipped a unit to break a cycle, and the task above
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.2 | 2026-11-24 | updated root password test so VPS console is not required |
 | 0.1.1 | 2026-11-24 | Linked the known issues on the ordering cycle, the reboot role and PerSourcePenalties |
 | 0.1.0 | 2026-11-24 | First version, provisional: a fresh install and an existing node, the `~/.ssh/config` entry, the host key, adoption, the checks, later builds, rebuilding a node made by an earlier version, lockouts, and troubleshooting by error message |

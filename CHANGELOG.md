@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-24
+
 ### Added
 
 - The `ssh` platform: uc-node builds a raw node on any Debian 13 host reached over SSH, such as a VPS, as well as on the local Incus host. A host is adopted on its first build with `-e uc_raw_node_adopt=true`, which writes the ownership marker `/etc/uc-raw-node/owner`. Every other build refuses a host without the marker, before any change.

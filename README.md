@@ -15,7 +15,7 @@ On every platform, a build:
 - bootstraps it with `robertdebock.bootstrap`, so Ansible modules can run
 - on the ssh platform, removes what the provider's image puts on the node that would break the contract
 - configures the node to contract: the hostname and fully qualified domain name, root's password and the initial user, the Foomuuri firewall and key-only SSH
-- reboots it with `ansible.builtin.reboot`, which fails if the boot ID did not change, then checks that the node finished booting without a systemd ordering cycle
+- reboots it with `ansible.builtin.reboot`, which fails if the boot ID did not change, then checks that the node finished booting without a systemd ordering cycle. See the known issues [robertdebock.reboot Reports Changed Without Rebooting](en/docs/known-issues/robertdebock-reboot-reports-changed-without-rebooting.md) and [Foomuuri and cloud-init Ordering Cycle](en/docs/known-issues/foomuuri-cloud-init-ordering-cycle.md)
 
 A second build of the same node changes nothing but the reboot.
 
@@ -34,6 +34,7 @@ A second build of the same node changes nothing but the reboot.
 | `scripts/new-node` | Writes a node definition to `~/.secrets/uc-raw/` |
 | `scripts/*-release.py`, `scripts/bump-version.py` | Release tools, see [Cut and Publish a Release](en/docs/guides/releases/cut-and-publish-a-release.md) |
 | `en/docs/guides/` | Step-by-step guides |
+| `en/docs/known-issues/` | Problems found in the tools uc-node uses, and what uc-node does about them |
 | `en/docs/sessions/` | Records of working sessions |
 
 The files in `inventory/group_vars/all/` live next to the inventory, so Ansible loads them for every play, including the platform plays `build.yml` imports.

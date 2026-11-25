@@ -1,7 +1,7 @@
 ---
 title: Build a Node on an SSH Host
 description: How to build a raw node on a Debian 13 host reached over SSH, such as a VPS, whether the host is a fresh install or an existing node, how to check it, and what to do when something goes wrong.
-version: 0.1.0
+version: 0.1.1
 status: provisional
 date: 2026-11-24
 language: en-CA
@@ -37,7 +37,7 @@ The examples use the node `raw.example.org` at `203.0.113.10`, with the initial 
 
 ### Why cloud-init is disabled
 
-On Debian 13, cloud-init 25 and Foomuuri form a systemd ordering cycle. At the next boot, systemd breaks the cycle by skipping one unit. On the Debian 13 cloud image it skipped cloud-init's network stage, so the rest of cloud-init waited forever and the node never left `starting`. systemd may skip either side of a cycle, so another boot could skip the firewall instead.
+On Debian 13, cloud-init 25 and Foomuuri form a systemd ordering cycle. At the next boot, systemd breaks the cycle by skipping one unit. On the Debian 13 cloud image it skipped cloud-init's network stage, so the rest of cloud-init waited forever and the node never left `starting`. systemd may skip either side of a cycle, so another boot could skip the firewall instead. See [Foomuuri and cloud-init Ordering Cycle](../known-issues/foomuuri-cloud-init-ordering-cycle.md).
 
 So when cloud-init is installed, the build creates `/etc/cloud/cloud-init.disabled` before the reboot, and cloud-init does not run again. It also writes `/etc/cloud/cloud.cfg.d/99-uc-raw-node.cfg`, with `preserve_hostname: true` and `manage_etc_hosts: false`, in case cloud-init is ever turned back on.
 
@@ -206,7 +206,7 @@ localhost                  : ok=14   changed=0    unreachable=0    failed=0    s
 raw.example.org            : ok=139  changed=14   unreachable=0    failed=0    skipped=56   rescued=0    ignored=0
 ```
 
-The counts vary with the host. What matters is `failed=0`. The reboot can be very fast, but it is real: the build fails if the boot ID did not change.
+The counts vary with the host. What matters is `failed=0`. The reboot can be very fast, but it is real: the build fails if the boot ID did not change. See [robertdebock.reboot Reports Changed Without Rebooting](../known-issues/robertdebock-reboot-reports-changed-without-rebooting.md) for why that check matters.
 
 ## Check the node
 
@@ -288,7 +288,7 @@ uc-raw-node did not write `/etc/uc-raw-node/owner`, so the first build with this
 
 ### After repeated failed logins
 
-OpenSSH 10's PerSourcePenalties blocks an address that keeps failing to log in, for up to ten minutes by default. While it lasts, every connection from your address is closed before login, even with the right key. Stop trying, find the cause from the troubleshooting section below, wait, then try once. The build itself tries each login only once.
+OpenSSH 10's PerSourcePenalties blocks an address that keeps failing to log in, for up to ten minutes by default. While it lasts, every connection from your address is closed before login, even with the right key. Stop trying, find the cause from the troubleshooting section below, wait, then try once. The build itself tries each login only once. See [OpenSSH PerSourcePenalties Lockouts](../known-issues/openssh-per-source-penalties-lockout.md).
 
 ### After a firewall or SSH change
 
@@ -415,10 +415,11 @@ The task above it shows `systemctl is-system-running`, the jobs systemd is waiti
 systemd found an ordering cycle while booting raw.example.org, and skipped a unit to break it. The skipped unit may be the firewall.
 ```
 
-The node booted, but systemd skipped a unit to break a cycle, and the task above shows which. Check that Foomuuri is active with `systemctl is-active foomuuri` before anything else. Then find the units in the cycle and report it, since the build does not fix cycles other than cloud-init's.
+The node booted, but systemd skipped a unit to break a cycle, and the task above shows which. Check that Foomuuri is active with `systemctl is-active foomuuri` before anything else. Then find the units in the cycle and report it, since the build does not fix cycles other than cloud-init's. See [Foomuuri and cloud-init Ordering Cycle](../known-issues/foomuuri-cloud-init-ordering-cycle.md) for the cycle uc-node knows.
 
 ## Changelog
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.1 | 2026-11-24 | Linked the known issues on the ordering cycle, the reboot role and PerSourcePenalties |
 | 0.1.0 | 2026-11-24 | First version, provisional: a fresh install and an existing node, the `~/.ssh/config` entry, the host key, adoption, the checks, later builds, rebuilding a node made by an earlier version, lockouts, and troubleshooting by error message |

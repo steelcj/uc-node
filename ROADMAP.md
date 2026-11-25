@@ -23,7 +23,7 @@ cloud-init-network.service
 
 `foomuuri.service` and `foomuuri-boot.service` keep systemd's default dependencies, so they are ordered after `sysinit.target`, while `cloud-init-network.service` is ordered before it. systemd breaks the cycle at boot by deleting one job. On the Debian 13 cloud image it deleted `cloud-init-network.service`, so cloud-init waited forever and the node stayed in `starting`. systemd may choose either side of a cycle, so another boot could drop a Foomuuri unit and leave the node without its firewall.
 
-The ssh platform now disables cloud-init after the first boot, and every build fails if `journalctl -b` holds an ordering cycle after the reboot. Raise the cycle with Foomuuri upstream, and in steelcj.foomuuri, for example so `foomuuri-boot.service` does not take the default dependencies, or with cloud-init if its ordering is the cause.
+The ssh platform now disables cloud-init after the first boot, and every build fails if `journalctl -b` holds an ordering cycle after the reboot. Raise the cycle with Foomuuri upstream, and in steelcj.foomuuri, for example so `foomuuri-boot.service` does not take the default dependencies, or with cloud-init if its ordering is the cause. See [Foomuuri and cloud-init Ordering Cycle](en/docs/known-issues/foomuuri-cloud-init-ordering-cycle.md).
 
 ### Check Ubuntu Server installs from uc-ventoy for the same cycle
 
@@ -35,7 +35,7 @@ The ssh platform refuses a first build whose `ssh_port` is not the first-contact
 
 ### Raise AuthorizedKeysCommand none with robertdebock.openssh
 
-The role's templates always write `AuthorizedKeysCommand {{ openssh_authorized_keys_command }}`, with `none` as the default. sshd 10 does not read `none` as unset for this option, and logs "AuthorizedKeysCommand path is not absolute" whenever no key in `authorized_keys` matches. uc-node sets it to `/usr/bin/true`. Ask the role to leave the line out when the value is `none`.
+The role's templates always write `AuthorizedKeysCommand {{ openssh_authorized_keys_command }}`, with `none` as the default. sshd 10 does not read `none` as unset for this option, and logs "AuthorizedKeysCommand path is not absolute" whenever no key in `authorized_keys` matches. uc-node sets it to `/usr/bin/true`. Ask the role to leave the line out when the value is `none`. See [AuthorizedKeysCommand none in robertdebock.openssh](en/docs/known-issues/robertdebock-openssh-authorized-keys-command-none.md).
 
 ## Later
 

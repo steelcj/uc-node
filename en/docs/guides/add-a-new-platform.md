@@ -1,7 +1,7 @@
 ---
 title: Add a New Platform to the Raw Node Controller
 description: How to teach uc-node to build raw nodes on a new platform, with the ssh platform as the worked example.
-version: 0.2.0
+version: 0.2.1
 status: provisional
 date: 2026-11-24
 language: en-CA
@@ -97,7 +97,7 @@ Whatever else it does, a create play must:
 
 - refuse a node the controller does not own, before any change
 - add the node to Ansible's inventory under `node_fqdn`, in the `raw_node` group and the platform's own group
-- set the connection variables there, with `add_host`, never in `inventory/group_vars/all/`, which also applies to localhost
+- set the connection variables there, with `add_host`, never in `inventory/group_vars/all/`, which also applies to localhost. The check play refuses a node definition that sets one of `node_connection_variables` in `platforms.yml`, since `-e` would override `add_host`. Add any new connection variable the create play sets to that list
 
 ## Worked example: the ssh platform
 
@@ -148,7 +148,7 @@ If it fails, it tries root on port 22, once. If both fail, it stops, quoting bot
 
 #### Never retry a failed login
 
-OpenSSH 10's PerSourcePenalties blocks an address that keeps failing to log in. A reconnect loop as root, with the agent offering every key, locked the controller out of a host in an early test. So:
+OpenSSH 10's PerSourcePenalties blocks an address that keeps failing to log in. A reconnect loop as root, with the agent offering every key, locked the controller out of a host in an early test. So: See [OpenSSH PerSourcePenalties Lockouts](../known-issues/openssh-per-source-penalties-lockout.md).
 
 - each login is tried once, and a failed one is never retried
 - the probes are plain `ssh` commands, not `wait_for_connection`, which retries until it times out, and needs Python, which bootstrap installs later
@@ -179,7 +179,7 @@ On the contract connection the create play sets `ansible_become: true`. As root 
 
 Root's keys are emptied after the switch rather than in the prepare play. Until the contract connection has worked, root's key is the only way back in over SSH, and a configure play that failed after the keys were gone would leave only the console.
 
-The ordering cycle runs from `cloud-init-network.service` through `systemd-networkd-wait-online.service`, `systemd-networkd.service`, `network-pre.target`, `foomuuri.service` and `foomuuri-boot.service` to `sysinit.target`, which `cloud-init-network.service` is ordered before. The ROADMAP has the item to raise it upstream.
+The ordering cycle runs from `cloud-init-network.service` through `systemd-networkd-wait-online.service`, `systemd-networkd.service`, `network-pre.target`, `foomuuri.service` and `foomuuri-boot.service` to `sysinit.target`, which `cloud-init-network.service` is ordered before. The ROADMAP has the item to raise it upstream. See [Foomuuri and cloud-init Ordering Cycle](../known-issues/foomuuri-cloud-init-ordering-cycle.md).
 
 ### Avoid locking yourself out
 
@@ -216,7 +216,7 @@ The provider's web console, with root's password, is the way back in when SSH is
 
 ### Reboot, and check the boot
 
-`robertdebock.reboot` reported changed without rebooting, because its job was killed before the shutdown ran. The build uses `ansible.builtin.reboot`, which fails if the boot ID did not change within `reboot_timeout`. After the reboot, every platform:
+`robertdebock.reboot` reported changed without rebooting, because its job was killed before the shutdown ran. The build uses `ansible.builtin.reboot`, which fails if the boot ID did not change within `reboot_timeout`. After the reboot, every platform: See [robertdebock.reboot Reports Changed Without Rebooting](../known-issues/robertdebock-reboot-reports-changed-without-rebooting.md).
 
 - waits for the node to report `running` or `degraded`, for at most `boot_timeout` seconds, and otherwise stops with the jobs it is waiting for and any ordering cycle
 - reads systemd's ordering cycle lines from `journalctl -b`, filtered on `SYSLOG_IDENTIFIER=systemd`, and on Incus from `incus console --show-log`, since a container's early boot messages never reach its journal
@@ -270,5 +270,6 @@ Run the checks from the platform's guide, then these, which matter most for a re
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.2.1 | 2026-11-24 | Linked the known issues, and added `node_connection_variables` to the create play's contract |
 | 0.2.0 | 2026-11-24 | Brought in line with what was built, still provisional: `ssh` instead of `vps`, `platforms.yml`, the `when` blocks and platform groups, group_vars under the inventory, `ansible.builtin.reboot` and the boot checks, `IdentitiesOnly`, the host key, root's keys, PerSourcePenalties, and the cloud-init ordering cycle |
 | 0.1.0 | 2026-11-23 | First draft, provisional: the platform model, and a VPS adopted over SSH as the worked example |

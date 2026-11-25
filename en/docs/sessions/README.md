@@ -1,7 +1,7 @@
 ---
 title: Session File Names
 description: How files in the sessions directory are named, by creation time, repository, piece of work and kind of record, and what goes in their front matter.
-version: 0.1.4
+version: 0.1.5
 status: provisional
 date: 2026-11-24
 language: en-CA
@@ -59,6 +59,7 @@ ls en/docs/sessions/*-platforms-*
 | Kind                    | What it holds                                                | Written by                              |
 | :---------------------- | :----------------------------------------------------------- | :-------------------------------------- |
 | `plan-and-kickoff`      | Where the repository stands, the plan in phases, and the kickoff prompt for Claude Code | Claude, in chat, before the work starts |
+| `phase-<number>-prompt` | The prompt that starts one phase, with the decisions taken since the last report | Claude, in chat, before the phase starts |
 | `phase-<number>-report` | What one phase changed, the checks it ran and their results, and what to know before the next phase | Claude Code, at the end of that phase   |
 | `session`               | The record of a working session that is not split into phases | Whoever runs the session                |
 
@@ -122,6 +123,7 @@ Session records are published with the repository, so they follow the same rule 
 
 | Version | Date       | Change                                                       |
 | :------ | :--------- | :----------------------------------------------------------- |
+| 0.1.5   | 2026-11-24 | Added the kind `phase-<number>-prompt` |
 | 0.1.4   | 2026-11-24 | Removed the blank line before the closing `---` of the front matter |
 | 0.1.3   | 2026-11-23 | Fixed the order of the examples, so the plan comes first. Gave the rest of the name its own heading, and used `\| :-- \|` alignment in every table. Added how to make the timestamp, that the timestamp never changes, the note on time zones, how to list one piece of work, and a section on older files. Reworded the front matter section to match the timestamped names. Made the list of what never goes in a session record general |
 | 0.1.2   | 2026-11-23 | Added the creation timestamp to the start of every file name |

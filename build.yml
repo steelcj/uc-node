@@ -39,6 +39,18 @@
         quiet: true
       loop: "{{ node_required_fields + platforms[platform].required_fields }}"
 
+    # Nothing in the inventory sets these for localhost, so on localhost a
+    # value can only come from -e, which is how the node definition is
+    # passed. Ansible gives localhost ansible_host: its inventory name, so
+    # that one is compared with inventory_hostname.
+    - name: Refuse a node definition that sets a connection variable
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.vars', item, default='uc-node-unset') == (inventory_hostname if item == 'ansible_host' else 'uc-node-unset')
+        fail_msg: "The node definition sets {{ item }}. The platform's create play sets the connection variables, so remove {{ item }} from the node definition."
+        quiet: true
+      loop: "{{ node_connection_variables }}"
+
     # These restate the rules in names.yml and incus.yml, so a value that
     # differs can only come from the node definition. Change them together.
     - name: Refuse a node definition that sets a calculated name

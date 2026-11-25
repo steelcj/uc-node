@@ -14,6 +14,17 @@ node_required_fields:
   - initial_password_hash
   - ssh_public_key
 
+# Connection variables each platform's create play sets with add_host. A
+# node definition is passed with -e, which would override them, so the
+# check play refuses a node definition that sets one. ansible_become_password
+# is not in the list: it may be given with -e instead of --ask-become-pass.
+node_connection_variables:
+  - ansible_host
+  - ansible_user
+  - ansible_port
+  - ansible_ssh_common_args
+  - ansible_ssh_host_key_checking
+
 # One entry per platform, named as in a node definition's platform field,
 # with the fields that platform requires on top of node_required_fields.
 platforms:

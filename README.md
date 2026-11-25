@@ -46,6 +46,7 @@ Values passed with `-e` override every value in `inventory/group_vars/all/`. So:
 
 - `inventory/group_vars/all/node.yml` holds the defaults for the optional fields, such as `platform: incus`, `node_label: raw` and `ssh_port: 22`, used only when the node definition does not set them
 - `inventory/group_vars/all/names.yml` holds the names calculated from `client_domain` and `node_label`, which a node definition must not set, and the build refuses one that does
+- the platform's create play sets the connection variables, such as `ansible_host`, `ansible_user` and `ansible_port`, so the build refuses a node definition that sets one. `ansible_become_password` is allowed
 
 | Field | Required | What it holds |
 | :-- | :-- | :-- |

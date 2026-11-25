@@ -37,10 +37,6 @@ The ssh platform refuses a first build whose `ssh_port` is not the first-contact
 
 The role's templates always write `AuthorizedKeysCommand {{ openssh_authorized_keys_command }}`, with `none` as the default. sshd 10 does not read `none` as unset for this option, and logs "AuthorizedKeysCommand path is not absolute" whenever no key in `authorized_keys` matches. uc-node sets it to `/usr/bin/true`. Ask the role to leave the line out when the value is `none`.
 
-### Refuse connection variables in a node definition
-
-A node definition is passed with `-e`, so a connection variable in it, such as `ansible_user`, `ansible_port` or `ansible_ssh_common_args`, overrides what the create play sets with `add_host`. The check play refuses the calculated names, but not these. Refuse any `ansible_` variable in a node definition, or name the ones that are allowed.
-
 ## Later
 
 ### Write confirmation.yml

@@ -1,7 +1,7 @@
 ---
 title: Build a Node on an SSH Host
 description: How to build a raw node on a Debian 13 host reached over SSH, such as a VPS, whether the host is a fresh install or an existing node, how to check it, and what to do when something goes wrong.
-version: 0.1.2
+version: 0.1.3
 status: provisional
 date: 2026-11-24
 language: en-CA
@@ -199,6 +199,23 @@ ansible-playbook build.yml -e @$HOME/.secrets/uc-raw/raw.example.org.yml -e uc_r
 
 `--ask-become-pass` asks for the initial user's password, the one whose hash is `initial_password_hash`. Every ssh build needs it, the first included: after the configure play, the build switches to the initial user, and the reboot runs with `sudo`.
 
+### Give the initial user's password, not the provider's
+
+Ansible's prompt only says `BECOME password:`, and on a fresh host the only password you have is the root password the provider gave you. Do not give that one. The first build logs in as root with your key, and root needs no `sudo`, so the build does not use the password you typed until it switches to the initial user. By then the configure play has set both root's and the initial user's passwords from the node definition, and root can no longer log in over SSH. A wrong password is only found at that point, and the build fails on its first `sudo` task with [Incorrect sudo password](#incorrect-sudo-password).
+
+The provider's root password is not used anywhere in the build. After the first build, root's password is the one whose hash is `root_password_hash`.
+
+### Check the password before the first build
+
+The build does not compare the password you type with `initial_password_hash`, so check it by hand before an adoption build. Take the salt from the hash, the part between the second and third `$`, and hash the password you mean to type with it:
+
+```sh
+grep initial_password_hash ~/.secrets/uc-raw/raw.example.org.yml
+openssl passwd -6 -salt '<salt>'
+```
+
+`openssl` asks for the password and prints a hash. If it matches `initial_password_hash`, that is the password to give `--ask-become-pass`. If it does not, find the right password, or make a new hash with `openssl passwd -6` and put it in the node definition, before you build. The same check works for `root_password_hash`.
+
 Expected, at the end:
 
 ```text
@@ -386,7 +403,9 @@ The build was run without `--ask-become-pass`. Every ssh build needs it, the fir
 
 ### Incorrect sudo password
 
-The password given to `--ask-become-pass` is not the initial user's. It is the password whose hash is `initial_password_hash` in the node definition, not root's.
+The password given to `--ask-become-pass` is not the initial user's. It is the password whose hash is `initial_password_hash` in the node definition, not root's, and not the root password the provider gave you. See [Give the initial user's password, not the provider's](#give-the-initial-users-password-not-the-providers).
+
+On a first build this error comes from the task `Look for root's authorized_keys`, after the configure play has run. The node is then part way to contract: root cannot log in over SSH, the initial user logs in with the key on `ssh_port`, and the ownership marker is written. Check the password as [Check the password before the first build](#check-the-password-before-the-first-build) shows, then run the build again with the right one. It finds the contract connection, and `uc_raw_node_adopt` is no longer needed. If the hash in the node definition is wrong and you do not know the password behind it, see [After losing the initial user's password](#after-losing-the-initial-users-password).
 
 ### sudo: a terminal is required to read the password
 
@@ -422,6 +441,7 @@ The node booted, but systemd skipped a unit to break a cycle, and the task above
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.3 | 2026-11-24 | Explained that `--ask-become-pass` wants the initial user's password, not the provider's root password, showed how to check it against `initial_password_hash` before the first build, and how to recover from Incorrect sudo password |
 | 0.1.2 | 2026-11-24 | updated root password test so VPS console is not required |
 | 0.1.1 | 2026-11-24 | Linked the known issues on the ordering cycle, the reboot role and PerSourcePenalties |
 | 0.1.0 | 2026-11-24 | First version, provisional: a fresh install and an existing node, the `~/.ssh/config` entry, the host key, adoption, the checks, later builds, rebuilding a node made by an earlier version, lockouts, and troubleshooting by error message |

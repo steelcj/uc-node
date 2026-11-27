@@ -483,8 +483,8 @@ def main():
     write(path, node_definition(values))
     print(f"Wrote {show(path)}")
     warn_missing_batch(values["raw_node_batch"])
-    print("\nCheck it, and commit it in the client inventory with UC_CONTROLLER set. The guides\n"
-          "2-build-and-check-a-raw-node.md and 3-build-a-node-on-an-ssh-host.md say when to build it.")
+    print("It is committed with the node's candidate, after the build, as\n"
+          "en/docs/guides/4-hand-over-to-the-fleet.md says.")
     if values["platform"] == "ssh":
         print(
             "\nThe build offers only the keys ~/.ssh/config names for the node's address, or the default key files.\n"

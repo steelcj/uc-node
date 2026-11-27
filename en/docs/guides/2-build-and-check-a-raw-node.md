@@ -1,7 +1,7 @@
 ---
 title: Build and Check a Raw Node
 description: How to write a node definition into a client inventory, build the raw node on the local Incus host with scripts/build, check the node, its confirmation and its candidate, build it again, and check that an instance uc-node does not own is refused.
-version: 0.2.1
+version: 0.2.2
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -125,13 +125,22 @@ Expected: `changed=0` for localhost, and `changed=3` for `raw.example.org`: the 
 
 ## Check that an instance uc-node does not own is refused
 
-Launch an instance without the ownership marker, under the name a `dev` node for `example.org` would use:
+This test launches an instance under the name of a node the client could have, builds it, and deletes it afterwards, with its node definition. Use a label the client has no node for yet. The examples use `prod`. First check that the client has neither a node definition nor an instance for it:
 
 ```sh
-incus launch images:debian/13 dev-example-org
+ls ~/.private/uc/example-org/uc-inventory/intake/
+incus list prod-example-org
 ```
 
-Write a node definition for it. Answer `y` to "Use defaults?", `dev` to the node label, press Enter for the platform, and give the batch:
+`intake/` must hold no `prod.example.org.yml`, and `incus list` must show no instance. If the client already has a node with that label, as an admitted `dev` node, use another label, or skip this test: its cleanup would delete that node.
+
+Launch an instance without the ownership marker, under the name a `prod` node for `example.org` would use:
+
+```sh
+incus launch images:debian/13 prod-example-org
+```
+
+Write a node definition for it. Answer `y` to "Use defaults?", `prod` to the node label, press Enter for the platform, and give the batch:
 
 ```sh
 scripts/new-node ~/.private/uc/example-org/uc-inventory
@@ -140,26 +149,29 @@ scripts/new-node ~/.private/uc/example-org/uc-inventory
 Then build it, and check the instance was left alone:
 
 ```sh
-scripts/build ~/.private/uc/example-org/uc-inventory dev.example.org
-incus config get dev-example-org user.uc-raw-node.owner
+scripts/build ~/.private/uc/example-org/uc-inventory prod.example.org
+incus config get prod-example-org user.uc-raw-node.owner
 ```
 
-Expected: the build fails with "dev-example-org exists but was not created by uc-raw-node, so it is left alone", before anything runs on the instance, and the last command prints nothing. The refusal comes before the node is in the build's inventory, so it is not a rejection, and nothing is written to `logs/rejected/`.
+Expected: the build fails with "prod-example-org exists but was not created by uc-raw-node, so it is left alone", before anything runs on the instance, and the last command prints nothing. The refusal comes before the node is in the build's inventory, so it is not a rejection, and nothing is written to `logs/rejected/`.
 
 ## Clean up
 
+Delete what this guide's tests made, and nothing else:
+
 ```sh
-incus delete --force raw-example-org dev-example-org
-rm ~/.private/uc/example-org/uc-inventory/intake/dev.example.org.yml
+incus delete --force raw-example-org prod-example-org
+rm ~/.private/uc/example-org/uc-inventory/intake/prod.example.org.yml
 rm ~/.private/uc/example-org/uc-inventory/candidates/raw.example.org.yml
 ```
 
-Keep `intake/raw.example.org.yml` if you want to build the node again.
+Keep `intake/raw.example.org.yml` if you want to build the node again. If you committed the candidate, as [Hand Over to the Fleet](4-hand-over-to-the-fleet.md#review-and-commit-the-candidate) says, remove it with `git rm` instead, and commit the removal.
 
 ## Changelog
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.2.2 | 2026-11-27 | From phase two's run: the test of an instance uc-node does not own uses `prod` instead of `dev`, after checking the label is unused, since its cleanup deleted `dev-example-org` and `intake/dev.example.org.yml`, which in example-org are an admitted node. A committed candidate is removed with `git rm` |
 | 0.2.1 | 2026-11-27 | `scripts/new-node` no longer prints the build command, and says "No defaults file" without `intake/defaults.yml`. The batch is `raw-YYYY-MM-DD-NN`, since `raw-1970-01-01-01` is reserved for documents and tests |
 | 0.2.0 | 2026-11-27 | Node definitions in the client inventory's `intake/`, written with `scripts/new-node <client inventory>` and built with `scripts/build`. The batch, the confirmation, the candidate and the fingerprint printed at the end. A second build changes three things. Front matter added |
 | 0.1.0 | 2026-11-24 | First version, with node definitions in `~/.secrets/uc-raw/` |

@@ -1,0 +1,297 @@
+"""Tests for intake: build.yml's check play, scripts/build and scripts/new-node.
+
+Every test makes its own secrets root and client inventory in a temporary
+directory, with values from the safe values register.
+
+The check play tests run ansible-playbook build.yml with a fake incus first
+on PATH, which answers every query with "not found" and refuses every
+launch. A build that passes the check play therefore stops at the launch,
+and nothing is ever created.
+
+    python3 tests/run_tests.py
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import yaml
+
+import helpers
+
+FAKE_INCUS = """#!/bin/sh
+# A stand-in for incus in the tests: nothing exists, and nothing is made.
+echo "fake incus: $*" >&2
+exit 1
+"""
+
+
+class Setup:
+    """A secrets root with a batch, a client inventory and a node definition."""
+
+    def __init__(self, base: Path):
+        self.base = base
+        self.root = helpers.make_secrets_root(base)
+        self.batch = helpers.make_batch(self.root)
+        self.inventory = helpers.make_client_inventory(base)
+        self.public_key = helpers.make_ssh_key(base).read_text().strip()
+        self.definition = helpers.write_node_definition(
+            self.inventory, helpers.node_definition(self.public_key))
+        self.bin = base / "bin"
+        self.bin.mkdir()
+        (self.bin / "incus").write_text(FAKE_INCUS)
+        (self.bin / "incus").chmod(0o755)
+        self.env = dict(os.environ, UC_NODE_SECRETS_DIR=str(self.root), ANSIBLE_NOCOLOR="1",
+                        ANSIBLE_FORCE_COLOR="0", PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}")
+        self.env.pop("ANSIBLE_CONFIG", None)
+
+    def playbook(self, *extra, definition=None, inventory="default"):
+        definition = definition or self.definition
+        argv = ["ansible-playbook", "build.yml", "-e", f"@{definition}"]
+        if inventory == "default":
+            argv += ["-e", f"uc_client_inventory={self.inventory}"]
+        elif inventory is not None:
+            argv += ["-e", f"uc_client_inventory={inventory}"]
+        argv += list(extra)
+        result = subprocess.run(argv, cwd=helpers.REPO, env=self.env, capture_output=True, text=True, timeout=300)
+        return result.returncode, result.stdout + result.stderr
+
+
+@unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook not on PATH")
+class CheckPlay(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.s = Setup(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def refused(self, expected, *extra, **kwargs):
+        status, output = self.s.playbook(*extra, **kwargs)
+        self.assertNotEqual(status, 0, output)
+        self.assertIn(expected, output)
+        self.assertNotIn("fake incus: launch", output, "the check play let the build through")
+        self.assertNotIn("$6$", output)
+        self.assertNotIn(helpers.ROOT_PASSWORD, output)
+        return output
+
+    def rewrite_definition(self, **changes):
+        data = yaml.safe_load(self.s.definition.read_text())
+        for key, value in changes.items():
+            if value is None:
+                data.pop(key, None)
+            else:
+                data[key] = value
+        self.s.definition.write_text(yaml.safe_dump(data, sort_keys=False, width=1000))
+
+    def test_a_good_node_definition_passes_the_check_play(self):
+        status, output = self.s.playbook()
+        self.assertNotEqual(status, 0)
+        self.assertIn("fake incus: launch", output)
+        self.assertNotIn("$6$", output)
+
+    def test_no_client_inventory(self):
+        self.refused("uc_client_inventory must be the absolute path", inventory=None)
+
+    def test_relative_client_inventory(self):
+        self.refused("uc_client_inventory must be the absolute path", inventory="uc/example-org/uc-inventory")
+
+    def test_client_inventory_without_intake(self):
+        other = self.s.base / "other"
+        other.mkdir()
+        self.refused("uc_client_inventory must be the absolute path", inventory=str(other))
+
+    def test_node_definition_not_in_the_client_inventory(self):
+        outside = self.s.base / "raw.example.org.yml"
+        shutil.move(self.s.definition, outside)
+        self.refused("has no node definition for raw.example.org in intake/", definition=outside)
+
+    def test_intake_file_describes_another_node(self):
+        # The node definition passed says raw.example.org, but the file of
+        # that name in intake/ is for another domain.
+        outside = self.s.base / "raw.example.org.yml"
+        shutil.copy(self.s.definition, outside)
+        self.rewrite_definition(client_domain="example.net")
+        self.refused("or the one there describes another node", definition=outside)
+
+    def test_hash_in_the_node_definition(self):
+        for key in ("root_password_hash", "initial_password_hash"):
+            with self.subTest(key=key):
+                self.rewrite_definition(**{key: "made-up, not a hash"})
+                output = self.refused("Make a batch with scripts/new-batch")
+                self.assertNotIn("made-up, not a hash", output)
+                self.rewrite_definition(**{key: None})
+
+    def test_no_batch_named(self):
+        self.rewrite_definition(raw_node_batch=None)
+        self.refused("The node definition has no raw_node_batch")
+
+    def test_bad_batch_name(self):
+        self.rewrite_definition(raw_node_batch="raw-EXAMPLE-01")
+        self.refused("raw_node_batch must be a batch name")
+
+    def test_missing_batch_file(self):
+        self.rewrite_definition(raw_node_batch="raw-1970-01-01-99")
+        output = self.refused("there is no file")
+        self.assertIn("scripts/new-batch raw-1970-01-01-99", output)
+
+    def test_badly_protected_batch_file(self):
+        self.s.batch.chmod(0o644)
+        self.refused("is mode 0644, not 0600")
+
+    def test_badly_protected_secrets_root(self):
+        self.s.root.chmod(0o755)
+        self.refused("is mode 0755, not 0700")
+
+    def test_batch_without_hashes(self):
+        self.s.batch.write_text("root_password_hash: 'made-up'\ninitial_password_hash: 'made-up'\n")
+        self.s.batch.chmod(0o600)
+        self.refused("they are not SHA-512 or yescrypt crypt hashes")
+
+
+class Build(unittest.TestCase):
+    """scripts/build, with a fake ansible-playbook that records its call."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self.inventory = helpers.make_client_inventory(base)
+        (self.inventory / "intake" / "raw.example.org.yml").write_text("client_domain: example.org\n")
+        self.bin = base / "bin"
+        self.bin.mkdir()
+        self.record = base / "record"
+        fake = self.bin / "ansible-playbook"
+        fake.write_text(f'#!/bin/sh\npwd > {self.record}\nfor a in "$@"; do echo "$a" >> {self.record}; done\n')
+        fake.chmod(0o755)
+        self.env = dict(os.environ, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_build(self, *argv, cwd=None):
+        return subprocess.run([sys.executable, str(helpers.REPO / "scripts" / "build"), *argv],
+                              env=self.env, cwd=cwd or self.tmp.name, capture_output=True, text=True)
+
+    def test_runs_the_playbook_from_the_repository(self):
+        relative = os.path.relpath(self.inventory, self.tmp.name)
+        result = self.run_build(relative, "raw.example.org", "--ask-become-pass", "-e", "uc_raw_node_adopt=true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = self.record.read_text().splitlines()
+        self.assertEqual(lines[0], str(helpers.REPO))
+        self.assertEqual(lines[1:], [
+            "build.yml",
+            "-e", f"@{self.inventory}/intake/raw.example.org.yml",
+            "-e", f"uc_client_inventory={self.inventory}",
+            "--ask-become-pass", "-e", "uc_raw_node_adopt=true",
+        ])
+        self.assertIn(f"uc_client_inventory={self.inventory}", result.stdout)
+
+    def test_refuses_a_node_not_in_intake(self):
+        result = self.run_build(str(self.inventory), "dev.example.org")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("has no intake/dev.example.org.yml", result.stderr)
+        self.assertFalse(self.record.exists())
+
+    def test_refuses_a_missing_inventory(self):
+        result = self.run_build(str(self.inventory.parent / "nowhere"), "raw.example.org")
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(self.record.exists())
+
+    def test_refuses_a_path_as_fqdn(self):
+        result = self.run_build(str(self.inventory), "../raw.example.org")
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(self.record.exists())
+
+
+class NewNode(unittest.TestCase):
+    """scripts/new-node, answering its questions on standard input."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        self.inventory = helpers.make_client_inventory(self.base)
+        self.root = helpers.make_secrets_root(self.base)
+        self.key = helpers.make_ssh_key(self.base)
+        self.defaults = self.inventory / "intake" / "defaults.yml"
+        self.defaults.write_text(yaml.safe_dump({
+            "client_domain": "example.org",
+            "initial_user": "initial",
+            "ssh_public_key": str(self.key),
+            "ssh_port": 22,
+            "ssh_sources": ["198.51.100.10/32"],
+        }, sort_keys=False))
+        self.env = dict(os.environ, HOME=str(self.base), UC_NODE_SECRETS_DIR=str(self.root))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_new_node(self, answers):
+        return subprocess.run([sys.executable, str(helpers.REPO / "scripts" / "new-node"), str(self.inventory)],
+                              input="".join(a + "\n" for a in answers), env=self.env,
+                              capture_output=True, text=True, timeout=60)
+
+    # Use the defaults, node label, platform, batch, then write.
+    GOOD = ["y", "dev", "incus", helpers.BATCH, "y"]
+
+    def test_writes_intake_without_hashes(self):
+        helpers.make_batch(self.root)
+        result = self.run_new_node(self.GOOD)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        path = self.inventory / "intake" / "dev.example.org.yml"
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
+        text = path.read_text()
+        self.assertNotIn("hash", text.split("No secrets")[1].split("\n", 2)[2])
+        self.assertNotIn("$6$", text)
+        data = yaml.safe_load(text)
+        self.assertEqual(data["raw_node_batch"], helpers.BATCH)
+        self.assertEqual(list(data), ["client_domain", "node_label", "platform", "initial_username",
+                                      "ssh_public_key", "ssh_port", "ssh_sources", "raw_node_batch"])
+        self.assertEqual(data["ssh_public_key"], self.key.read_text().strip())
+        self.assertNotIn("does not exist", result.stdout)
+        self.assertIn(f"scripts/build", result.stdout)
+
+    def test_the_file_meets_the_client_inventory_yamllint(self):
+        if shutil.which("yamllint") is None:
+            self.skipTest("yamllint not on PATH")
+        result = self.run_new_node(self.GOOD)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        config = ("{extends: default, rules: {document-start: disable, "
+                  "indentation: {indent-sequences: consistent}, line-length: {max: 120}}}")
+        lint = subprocess.run(["yamllint", "-d", config, str(self.inventory / "intake")],
+                              capture_output=True, text=True)
+        self.assertEqual(lint.returncode, 0, lint.stdout)
+
+    def test_warns_when_the_batch_file_is_missing(self):
+        result = self.run_new_node(self.GOOD)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("does not exist", result.stdout)
+        self.assertIn(f"scripts/new-batch {helpers.BATCH}", result.stdout)
+
+    def test_refuses_a_bad_batch_name_then_asks_again(self):
+        result = self.run_new_node(["y", "dev", "incus", "raw-1970-02-30-01", helpers.BATCH, "y"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("real date", result.stdout)
+
+    def test_refuses_defaults_with_a_hash(self):
+        for text in ("root_password_hash: x\n", "initial_password_hash: x\n",
+                     "note: '$6$abcdefgh$ijklmnopqrstuvwxyz0123456789'\n"):
+            with self.subTest(text=text):
+                self.defaults.write_text("client_domain: example.org\n" + text)
+                result = self.run_new_node(self.GOOD)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("holds a password hash", result.stderr)
+                self.assertFalse((self.inventory / "intake" / "dev.example.org.yml").exists())
+
+    def test_never_asks_for_a_password(self):
+        result = self.run_new_node(self.GOOD)
+        self.assertNotIn("assword", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

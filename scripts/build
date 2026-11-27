@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Build one node from a client inventory.
+
+    scripts/build <client inventory> <fqdn> [ansible-playbook arguments]
+
+Resolves <client inventory> to an absolute path, refuses one without
+intake/<fqdn>.yml, prints the command, and runs, from this repository so
+Ansible reads its ansible.cfg and inventory:
+
+    ansible-playbook build.yml -e @<client inventory>/intake/<fqdn>.yml \\
+      -e uc_client_inventory=<client inventory> [ansible-playbook arguments]
+
+Every argument after <fqdn> is passed to ansible-playbook as it is, such as
+-e uc_raw_node_adopt=true or --ask-become-pass on the ssh platform.
+
+For example:
+
+    scripts/build ~/.private/uc/example-org/uc-inventory dev.example.org
+"""
+
+import os
+import shlex
+import shutil
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def fail(message):
+    print(f"build: {message}", file=sys.stderr)
+    return 2
+
+
+def main(argv):
+    if len(argv) < 2 or argv[0] in ("-h", "--help"):
+        print(__doc__.strip(), file=sys.stderr)
+        return 0 if argv[:1] in (["-h"], ["--help"]) else 2
+    inventory_arg, fqdn, rest = argv[0], argv[1], argv[2:]
+    inventory = Path(inventory_arg).expanduser().resolve()
+    if not inventory.is_dir():
+        return fail(f"{inventory_arg} is not a directory.")
+    # uc_client_inventory is passed as key=value, which Ansible splits at
+    # white space, and the node definition's name is a file name.
+    if any(c.isspace() or c in "'\"\\" for c in str(inventory)):
+        return fail(f"{inventory} holds white space, a quote or a backslash. Use a client inventory path without them.")
+    if not fqdn or "/" in fqdn or fqdn.startswith(".") or fqdn.endswith(".yml"):
+        return fail(f"{fqdn!r} is not a fully qualified domain name, such as dev.example.org.")
+    definition = inventory / "intake" / f"{fqdn}.yml"
+    if not definition.is_file():
+        return fail(f"{inventory} has no intake/{fqdn}.yml. Write it with scripts/new-node {inventory}.")
+    if shutil.which("ansible-playbook") is None:
+        return fail("ansible-playbook is not on PATH. Activate the Ansible virtual environment first.")
+
+    command = ["ansible-playbook", "build.yml",
+               "-e", f"@{definition}",
+               "-e", f"uc_client_inventory={inventory}",
+               *rest]
+    print(f"Running, in {REPO}:\n  {shlex.join(command)}\n", flush=True)
+    os.chdir(REPO)
+    os.execvp(command[0], command)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

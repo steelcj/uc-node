@@ -24,6 +24,17 @@
         fail_msg: "The node definition sets hostname, which is no longer used. Rename hostname to client_domain in the node definition."
         quiet: true
 
+    # users.yml reads both hashes from the batch through uc_secret, and
+    # nothing in the inventory defines these names, so a value can only
+    # come from a node definition written before batches.
+    - name: Refuse a node definition that still holds a password hash
+      ansible.builtin.assert:
+        that:
+          - root_password_hash is not defined
+          - initial_password_hash is not defined
+        fail_msg: "The node definition holds root_password_hash or initial_password_hash, which are no longer used. Make a batch with scripts/new-batch, which writes both hashes to ~/.secrets/uc/build/batches/<batch>.yml, then remove both hashes from the node definition and name the batch in raw_node_batch. See en/docs/guides/0-set-up-a-client.md."
+        quiet: true
+
     - name: Check platform
       ansible.builtin.assert:
         that:
@@ -74,6 +85,37 @@
         fail_msg: "client_domain must be DNS labels of lowercase letters, digits and hyphens, each at most 63 characters, separated by dots and at most 253 characters in all, for example example.org. It is {{ client_domain }}."
         quiet: true
 
+    # The node definition comes from the client inventory's intake/, and
+    # the candidate and any rejection are written beside it, so the build
+    # needs to know which client inventory it is. scripts/build passes it.
+    - name: Require the client inventory
+      ansible.builtin.assert:
+        that:
+          - uc_client_inventory is defined
+          - uc_client_inventory is string
+          - uc_client_inventory is ansible.builtin.match('/')
+          - (uc_client_inventory ~ '/intake') is directory
+        fail_msg: "uc_client_inventory must be the absolute path of a client inventory with an intake/ directory, such as /home/operator/.private/uc/example-org/uc-inventory. Run the build with scripts/build <client inventory> <fqdn>, which passes it."
+        quiet: true
+
+    - name: Note the node definition's place in the client inventory
+      ansible.builtin.set_fact:
+        uc_intake_file: "{{ uc_client_inventory }}/intake/{{ node_fqdn }}.yml"
+
+    # The node definition is passed with -e, and the client inventory with
+    # another -e, so they could name different nodes. The node's own file
+    # in intake/ must exist and describe the same node.
+    - name: Refuse a node definition that is not in the client inventory
+      ansible.builtin.assert:
+        that:
+          - uc_intake_file is file
+          - uc_intake.client_domain | default('') == client_domain
+          - uc_intake.node_label | default(node_label) == node_label
+        fail_msg: "The client inventory {{ uc_client_inventory }} has no node definition for {{ node_fqdn }} in intake/, or the one there describes another node. Write it with scripts/new-node {{ uc_client_inventory }}, and build with scripts/build {{ uc_client_inventory }} {{ node_fqdn }}."
+        quiet: true
+      vars:
+        uc_intake: "{{ (lookup('ansible.builtin.file', uc_intake_file) | from_yaml) if uc_intake_file is file else {} }}"
+
     - name: Check node_address
       ansible.builtin.assert:
         that:
@@ -88,6 +130,38 @@
         that:
           - node_label in node_labels
         fail_msg: "node_label must be one of {{ node_labels | join(', ') }}. It is {{ node_label }}."
+        quiet: true
+
+    - name: Check raw_node_batch
+      ansible.builtin.assert:
+        that:
+          - raw_node_batch is string
+          - raw_node_batch is ansible.builtin.match(raw_node_batch_pattern)
+        fail_msg: "raw_node_batch must be a batch name, raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01. It is {{ raw_node_batch }}."
+        quiet: true
+
+    # Read the batch once here, so a missing or badly protected batch file
+    # stops the build before anything is created. Only a boolean is kept,
+    # and no_log hides the task's result. ansible-core still prints the
+    # lookup's error above the censored result, which is uc_secret's
+    # refusal: it says what to fix and never holds the value.
+    - name: Read the batch
+      block:
+        - name: Read both password hashes from the batch, through uc_secret
+          ansible.builtin.set_fact:
+            uc_batch_hashes_valid: "{{ (lookup('uc_secret', 'batches/' ~ raw_node_batch, key='root_password_hash') is ansible.builtin.match('[$](6|y)[$]')) and (lookup('uc_secret', 'batches/' ~ raw_node_batch, key='initial_password_hash') is ansible.builtin.match('[$](6|y)[$]')) }}"
+          no_log: true
+
+      rescue:
+        - name: Stop, since the batch could not be read
+          ansible.builtin.fail:
+            msg: "The batch {{ raw_node_batch }} could not be read through uc_secret, for the reason in the error above. If the batch does not exist yet, make it with scripts/new-batch {{ raw_node_batch }}."
+
+    - name: Check that the batch holds password hashes
+      ansible.builtin.assert:
+        that:
+          - uc_batch_hashes_valid | bool
+        fail_msg: "The batch {{ raw_node_batch }} holds root_password_hash and initial_password_hash, but they are not SHA-512 or yescrypt crypt hashes. Retire the batch and make a new one with scripts/new-batch."
         quiet: true
 
     # Incus allows at most 63 characters in an instance name.

@@ -1,7 +1,7 @@
 ---
 title: Set Up the Defaults for New Nodes
 description: How to write a client inventory's intake/defaults.yml, the values scripts/new-node offers for each new node definition, and check that the script accepts them.
-version: 0.2.1
+version: 0.2.2
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -35,11 +35,12 @@ Then paste:
 # for example dev.example.org.
 client_domain: example.org
 
-# The initial user of a raw node.
-initial_user: initial
+# The initial user of a raw node, named as in a node definition.
+initial_username: initial
 
-# The client's key, which the initial user logs in with: the key line
-# itself, or the path to a .pub file. The node definition holds the key line.
+# The client's key, which the initial user logs in with: the path to its
+# .pub file, or the key line itself. The node definition holds the key line.
+# A path keeps this line within the client inventory's yamllint limit.
 ssh_public_key: ~/.ssh/example-org-raw-initial-id_ed25519.pub
 
 # The port SSH listens on. Keep 22: the client inventory layout fixes it there.
@@ -54,12 +55,15 @@ ssh_sources: []
 # raw_node_batch: raw-YYYY-MM-DD-NN
 ```
 
-The file must be at exactly `intake/defaults.yml` in the client inventory. It is written like any other file there, mode `0644`, and committed with it.
+The file must be at exactly `intake/defaults.yml` in the client inventory, and is committed with it. It holds only the settings in the table below, each named as in a node definition. `scripts/new-node` refuses any other setting, such as `initial_user` or `node_address`, and names it, rather than ignore it.
+
+Give `ssh_public_key` as a path. The key line itself, with the client's comment, is about 130 characters, and the client inventory's yamllint limit is 120. `scripts/new-node` folds the key line before its comment in the node definitions it writes, so they fit: leave the fold as it is.
 
 | Setting | Rule |
 | :-- | :-- |
+| `node_label`, `platform` | Optional: the label and platform offered first, such as `raw` and `incus`. Both are asked for every node |
 | `client_domain` | DNS labels of lowercase letters, digits and hyphens, separated by dots, such as `example.org`. `scripts/new-node` asks again when it does not match the client's folder name, such as `example.com` for `example-org` |
-| `initial_user` | Lowercase letters, digits, `-` and `_`, starting with a letter or `_`, at most 32 characters, never `root` |
+| `initial_username` | Lowercase letters, digits, `-` and `_`, starting with a letter or `_`, at most 32 characters, never `root` |
 | `ssh_public_key` | An OpenSSH public key line, or the path to a `.pub` file, that `ssh-keygen` accepts: the client's key, `~/.ssh/<client>-raw-initial-id_ed25519.pub` |
 | `ssh_port` | A number from 1 to 65535 |
 | `ssh_sources` | IPv4 or IPv6 addresses or networks, without host bits set |
@@ -79,6 +83,7 @@ Next: [Build and Check a Raw Node](2-build-and-check-a-raw-node.md) on the local
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.2.2 | 2026-11-27 | From phase two's run: `initial_username`, as in a node definition, in place of `initial_user`; only the settings in the table, others refused; `node_label` and `platform` listed; the key as a path, to stay within the yamllint limit |
 | 0.2.1 | 2026-11-27 | From the operator's notes on setting up `example-org`: what `scripts/new-node` says without the file, the client's key, the check against the client's folder, and batch names with the day's date instead of `raw-1970-01-01-01`, which is reserved for documents and tests |
 | 0.2.0 | 2026-11-27 | The defaults move from `~/.secrets/uc-raw/defaults.yml` to the client inventory's `intake/defaults.yml`, without the password hashes, which are in the build batch. Front matter, a table of the rules, and the optional `raw_node_batch` added |
 | 0.1.0 | 2026-11-24 | First version, for `~/.secrets/uc-raw/defaults.yml` with the default password hashes |

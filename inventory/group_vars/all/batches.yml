@@ -7,7 +7,8 @@
 # read through uc_secret. The batch password itself is uc-controller's, and
 # uc-node never holds it.
 
-# The rule for a batch name, raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01.
+# The rule for a batch name, raw-YYYY-MM-DD-NN: the day the batch
+# is made, and a number for that day.
 # build.yml checks raw_node_batch against it before anything is created, and
 # scripts/new-batch and scripts/new-node read it from here. new-batch also
 # checks that the date is a real one.

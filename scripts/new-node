@@ -6,8 +6,9 @@
 It reads its defaults from <client inventory>/intake/defaults.yml, if that
 file exists, and writes <client inventory>/intake/<node label>.<client
 domain>.yml, named after the node's fully qualified domain name, mode 0644
-like any file in the client inventory. Build the node with
-scripts/build <client inventory> <fqdn>.
+like any file in the client inventory. Without a defaults file it says
+so, and asks for every value, with no default for the client domain or the
+key.
 
 A node definition holds no secret. It names its batch in raw_node_batch,
 and the build reads the batch's password hashes through uc_secret from
@@ -42,15 +43,20 @@ DEFAULTS_FILE = None
 HASH_KEYS = ("root_password_hash", "initial_password_hash")
 CRYPT_HASH = re.compile(r"\$(?:1|5|6|y|2[aby])\$[./A-Za-z0-9$]{8,}")
 
-# Used when a value is in neither the defaults file nor typed in.
+# Used when a value is in neither the defaults file nor typed in. There is
+# none for client_domain or ssh_public_key: each client has its own, and a
+# guess such as ~/.ssh/id_ed25519.pub is accepted too easily by Enter.
 FALLBACKS = {
     "node_label": "raw",
     "platform": "incus",
     "initial_user": "initial",
-    "ssh_public_key": "~/.ssh/id_ed25519.pub",
     "ssh_port": 22,
     "ssh_sources": [],
 }
+
+# The client's folder, <private root>/uc/<client>/, set by main() when the
+# client inventory is in one. Its name is compared with the client domain.
+CLIENT = None
 
 DOMAIN_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 USER_NAME = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
@@ -70,6 +76,11 @@ def show(path):
 
 def load_defaults():
     if not DEFAULTS_FILE.exists():
+        print(
+            f"No defaults file: {show(DEFAULTS_FILE)} does not exist, so every value is asked for,\n"
+            "with no default for the client domain or the SSH public key. To use defaults, stop\n"
+            "here with Ctrl-C and write it as en/docs/guides/1-setup-the-defaults-for-new-nodes.md shows.\n"
+        )
         return None
     text = DEFAULTS_FILE.read_text(encoding="utf-8")
     data = yaml.safe_load(text) or {}
@@ -213,12 +224,24 @@ def check_sources(value):
 def check_batch(value):
     value = str(value).strip()
     if not BATCH_NAME.fullmatch(value):
-        raise Invalid("use a batch name, raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01")
+        raise Invalid(f"use a batch name, raw-YYYY-MM-DD-NN, with the date the batch was made, such as raw-{datetime.date.today()}-01")
     try:
         datetime.date.fromisoformat(value[4:14])
     except ValueError:
         raise Invalid("the batch name must hold a real date, raw-YYYY-MM-DD-NN") from None
     return value
+
+
+def confirm_domain(values):
+    """Ask again when the client domain does not match the client's folder,
+    such as example.com for ~/.private/uc/example-org/. The folder name is
+    the client's short name, which is usually the domain with hyphens for
+    dots, but need not be, so a mismatch is a question, not a refusal."""
+    while CLIENT is not None and values["client_domain"].replace(".", "-") != CLIENT:
+        print(f"  The client inventory is in the folder of the client {CLIENT}, and {values['client_domain']} does not match it.")
+        if ask_yes(f"Is {values['client_domain']} the domain of {CLIENT}?", False):
+            return
+        values["client_domain"] = ask(DOMAIN_QUESTION, "client_domain", None, check_domain)
 
 
 def secrets_root():
@@ -301,14 +324,16 @@ def checked(name, value, check):
         sys.exit(f"new-node: {name} in {show(DEFAULTS_FILE)}: {error}.")
 
 
+DOMAIN_QUESTION = "Client domain, the node is named <node label>.<client domain> (for example example.org)"
+KEY_LABEL = "SSH public key of the initial user (a key line, or the path to a .pub file)"
 SOURCES_LABEL = "Allow SSH only from (addresses or networks, blank for the default, any for any)"
 
 QUESTIONS = [
-    ("client_domain", "Client domain", check_domain),
+    ("client_domain", DOMAIN_QUESTION, check_domain),
     ("node_label", f"Node label ({', '.join(NODE_LABELS)})", check_label),
     ("platform", f"Platform ({', '.join(PLATFORMS)})", check_platform),
     ("initial_user", "Initial user", check_user),
-    ("ssh_public_key", "SSH public key", check_key),
+    ("ssh_public_key", KEY_LABEL, check_key),
     ("ssh_port", "SSH port", check_port),
     ("ssh_sources", SOURCES_LABEL, check_sources),
     ("raw_node_batch", "Batch (raw-YYYY-MM-DD-NN)", check_batch),
@@ -359,6 +384,8 @@ def gather(defaults):
             values[name] = ask_sources(label, check(default))
         else:
             values[name] = ask(label, name, default, check)
+        if name == "client_domain":
+            confirm_domain(values)
         if name == "platform":
             values.update(ask_platform_fields(values[name]))
 
@@ -433,7 +460,7 @@ def ssh_config_block(values):
 
 
 def main():
-    global INTAKE_DIR, DEFAULTS_FILE
+    global INTAKE_DIR, DEFAULTS_FILE, CLIENT
     if len(sys.argv) != 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__.strip())
         return 0 if sys.argv[1:] in (["-h"], ["--help"]) else 2
@@ -443,6 +470,8 @@ def main():
                  "as en/docs/guides/0-set-up-a-client.md describes.")
     INTAKE_DIR = inventory / "intake"
     DEFAULTS_FILE = INTAKE_DIR / "defaults.yml"
+    if inventory.parent.parent.name == "uc":
+        CLIENT = inventory.parent.name
     defaults = load_defaults()
     values = gather(defaults)
     fqdn = f"{values['node_label']}.{values['client_domain']}"
@@ -454,7 +483,8 @@ def main():
     write(path, node_definition(values))
     print(f"Wrote {show(path)}")
     warn_missing_batch(values["raw_node_batch"])
-    print(f"\nBuild it with:\n\n  scripts/build {show(inventory)} {fqdn}")
+    print("\nCheck it, and commit it in the client inventory with UC_CONTROLLER set. The guides\n"
+          "2-build-and-check-a-raw-node.md and 3-build-a-node-on-an-ssh-host.md say when to build it.")
     if values["platform"] == "ssh":
         print(
             "\nThe build offers only the keys ~/.ssh/config names for the node's address, or the default key files.\n"

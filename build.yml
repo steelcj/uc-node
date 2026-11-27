@@ -137,7 +137,7 @@
         that:
           - raw_node_batch is string
           - raw_node_batch is ansible.builtin.match(raw_node_batch_pattern)
-        fail_msg: "raw_node_batch must be a batch name, raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01. It is {{ raw_node_batch }}."
+        fail_msg: "raw_node_batch must be a batch name, raw-YYYY-MM-DD-NN, with the date the batch was made. It is {{ raw_node_batch }}."
         quiet: true
 
     # Read the batch once here, so a missing or badly protected batch file

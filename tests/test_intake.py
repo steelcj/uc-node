@@ -254,7 +254,9 @@ class NewNode(unittest.TestCase):
                                       "ssh_public_key", "ssh_port", "ssh_sources", "raw_node_batch"])
         self.assertEqual(data["ssh_public_key"], self.key.read_text().strip())
         self.assertNotIn("does not exist", result.stdout)
-        self.assertIn(f"scripts/build", result.stdout)
+        self.assertNotIn("No defaults file", result.stdout)
+        # Building is a later step of the guides, so no build command is shown.
+        self.assertNotIn("scripts/build", result.stdout)
 
     def test_the_file_meets_the_client_inventory_yamllint(self):
         if shutil.which("yamllint") is None:
@@ -287,6 +289,43 @@ class NewNode(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("holds a password hash", result.stderr)
                 self.assertFalse((self.inventory / "intake" / "dev.example.org.yml").exists())
+
+    def without_defaults(self, domain_answers):
+        """Every question answered, with no defaults file: the client domain
+        answers, the node label, the platform, the initial user, the key
+        (Enter first, which has no default), the port, the sources, the
+        batch, and the write question."""
+        self.defaults.unlink()
+        return self.run_new_node([*domain_answers, "dev", "incus", "", "", str(self.key), "", "", helpers.BATCH, "y"])
+
+    def test_says_when_there_is_no_defaults_file(self):
+        result = self.without_defaults(["example.org"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("No defaults file", result.stdout)
+        self.assertIn("defaults.yml does not exist", result.stdout)
+        # No key is offered: Enter asks again.
+        self.assertIn("(a key line, or the path to a .pub file) []", result.stdout)
+        self.assertIn("A value is needed", result.stdout)
+        self.assertNotIn("id_ed25519.pub]", result.stdout)
+        data = yaml.safe_load((self.inventory / "intake" / "dev.example.org.yml").read_text())
+        self.assertEqual(data["ssh_public_key"], self.key.read_text().strip())
+
+    def test_the_client_domain_prompt_gives_an_example(self):
+        result = self.without_defaults(["example.org"])
+        self.assertIn("Client domain, the node is named <node label>.<client domain> (for example example.org) []",
+                      result.stdout)
+
+    def test_asks_again_when_the_domain_does_not_match_the_client(self):
+        result = self.without_defaults(["example.com", "n", "example.org"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("client example-org, and example.com does not match it", result.stdout)
+        self.assertTrue((self.inventory / "intake" / "dev.example.org.yml").exists())
+        self.assertFalse((self.inventory / "intake" / "dev.example.com.yml").exists())
+
+    def test_keeps_a_domain_that_does_not_match_when_confirmed(self):
+        result = self.without_defaults(["example.com", "y"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.inventory / "intake" / "dev.example.com.yml").exists())
 
     def test_never_asks_for_a_password(self):
         result = self.run_new_node(self.GOOD)

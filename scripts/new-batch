@@ -3,8 +3,9 @@
 
     scripts/new-batch <batch>
 
-<batch> is raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01, the rule in
-inventory/group_vars/all/batches.yml, on a real date. The script reads the
+<batch> is raw-YYYY-MM-DD-NN, the rule in inventory/group_vars/all/batches.yml:
+the day you make it, and a number for that day, such as raw-2026-11-27-01.
+Dates in 1970 are reserved for documents and tests. The script reads the
 root password once and the batch password twice from the terminal, without
 echo, refuses a batch password shorter than 15 characters (RN-ACC-08), and
 writes
@@ -73,11 +74,11 @@ def secrets_root():
 def check_batch(name, pattern):
     """The batch name, or exit saying what is wrong with it."""
     if not pattern.fullmatch(name):
-        fail(f"{name!r} is not a batch name. Use raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01.", 2)
+        fail(f"{name!r} is not a batch name. Use raw-YYYY-MM-DD-NN with the day's date, such as raw-{datetime.date.today()}-01.", 2)
     try:
         datetime.date.fromisoformat(name[4:14])
     except ValueError:
-        fail(f"{name!r} does not hold a real date. Use raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01.", 2)
+        fail(f"{name!r} does not hold a real date. Use raw-YYYY-MM-DD-NN with the day's date, such as raw-{datetime.date.today()}-01.", 2)
     return name
 
 

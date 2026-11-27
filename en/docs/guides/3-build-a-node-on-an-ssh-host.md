@@ -1,7 +1,7 @@
 ---
 title: Build a Node on an SSH Host
-description: How to build a raw node on a Debian 13 host reached over SSH, such as a VPS, whether the host is a fresh install or an existing node, how to check it, and what to do when something goes wrong.
-version: 0.2.0
+description: How to build a raw node on a Debian 13 host reached over SSH, such as a VPS, from a fresh install, how to check it, build it again, and what to do when something goes wrong.
+version: 0.3.0
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -9,18 +9,11 @@ language: en-CA
 
 # Build a Node on an SSH Host
 
-This guide builds a raw node on the `ssh` platform: a Debian 13 host that uc-node reaches over SSH, such as a VPS. It covers two starting points:
-
-| Starting point | What the host looks like | Where it differs |
-| :-- | :-- | :-- |
-| A fresh install | A newly ordered Debian 13 host, with your key installed for root | Root logs in on port 22 for the first build |
-| An existing node | A host an earlier build of uc-node or uc-raw-node already brought to contract | Root cannot log in, the initial user logs in on `ssh_port`, and its node definition may be in the old format |
-
-Both paths end in the same adoption build, the same checks, and the same later builds.
+This guide builds a raw node on the `ssh` platform: a Debian 13 host that uc-node reaches over SSH, such as a VPS. It starts from a fresh install, a newly ordered Debian 13 host with your key installed for root, where root logs in on port 22 for the first build. Later builds log in as the initial user.
 
 It assumes the client is set up as [Set Up a Client](0-set-up-a-client.md) describes, with a build batch and the defaults from [Set Up the Defaults for New Nodes](1-setup-the-defaults-for-new-nodes.md), and that the requirements in the [README](../../../README.md#requirements) are installed. Run every command from the repository directory.
 
-The examples use the client `example-org`, whose inventory is `~/.private/uc/example-org/uc-inventory`, the node `raw.example.org` at `203.0.113.10`, the initial user `initial`, the batch `raw-1970-01-01-01` and the key `~/.ssh/example-org-raw-initial-id_ed25519`. Use your own values.
+The examples use the client `example-org`, whose inventory is `~/.private/uc/example-org/uc-inventory`, the node `raw.example.org` at `203.0.113.10`, the initial user `initial`, the batch `raw-YYYY-MM-DD-NN`, with the date your batch was made, and the key `~/.ssh/example-org-raw-initial-id_ed25519`. Use your own values.
 
 ## What the build does on an SSH host
 
@@ -75,47 +68,6 @@ Answer `ssh` for the platform, then the node's address and the batch. Keep `ssh_
 
 The script writes `~/.private/uc/example-org/uc-inventory/intake/raw.example.org.yml`, then prints the entry to add to `~/.ssh/config`, described next.
 
-## Prepare an existing node
-
-A node an earlier build brought to contract already refuses root over SSH, and its initial user logs in with the key on `ssh_port`, using `sudo` with the initial user's password. The examples in this path assume the node listens on port 2222. Leave out `-p 2222` if it listens on 22.
-
-### Check it by hand
-
-Check the initial user's login, its `sudo` password, and the settings the build will reuse. `sudo` over `ssh` needs a terminal, so use `ssh -t`:
-
-```sh
-ssh -t -p 2222 initial@203.0.113.10 'sudo passwd -S root; sudo sshd -T | grep -E "^(port|permitrootlogin|passwordauthentication) "'
-```
-
-Expected: `root P ...`, so root still has a password for the console, `permitrootlogin no`, `passwordauthentication no`, and the port SSH listens on. That port goes into the node definition as `ssh_port`. The password you give `sudo` here is the one the build asks for with `--ask-become-pass`, and must be the batch password of the batch the node definition names.
-
-If `sudo` still says a terminal is required, see [sudo: a terminal is required to read the password](#sudo-a-terminal-is-required-to-read-the-password).
-
-### Update the node definition
-
-A node definition from uc-raw-node or uc-node 0.2.0 lives under `~/.secrets/`, holds the two password hashes, and may name the client domain `hostname`. The build refuses all three. First put its hashes in a batch, or rotate them, as [Move node definitions from ~/.secrets/uc-raw/](0-set-up-a-client.md#move-node-definitions-from-secretsuc-raw) shows. Then write it into `intake/` with the current fields:
-
-```yaml
----
-client_domain: example.org
-node_label: raw
-platform: ssh
-node_address: 203.0.113.10
-initial_username: initial
-ssh_public_key: <unchanged>
-ssh_port: 2222
-ssh_sources: <unchanged>
-raw_node_batch: raw-1970-01-01-01
-```
-
-- `hostname` becomes `client_domain`.
-- `platform`, `node_address` and `node_label` are added. The label decides the node's names: `raw` gives the hostname `raw` and the fully qualified domain name `raw.example.org`, and the file is `intake/raw.example.org.yml`.
-- `root_password_hash` and `initial_password_hash` are removed, and `raw_node_batch` names the batch that holds them.
-- `ssh_port` is the port you found above.
-- If `ssh_sources` is not empty, it must include your controller's current public address.
-
-Keep the old file until the build works, then retire it as [Set Up a Client](0-set-up-a-client.md#retire-secretsuc-raw-and-secretsuc-raw-node) shows.
-
 ## Add the node to ~/.ssh/config
 
 Every connection the build makes uses `IdentitiesOnly=yes`, so ssh offers only the default key files, such as `~/.ssh/id_ed25519`, and the keys `~/.ssh/config` names for the node's address. It never offers every key in the agent, which would count as failed logins on the node. A key kept anywhere else must be named in `~/.ssh/config`:
@@ -141,10 +93,10 @@ Test the entry with one plain login before the build. For a fresh install, the k
 ssh root@203.0.113.10 true && echo ok
 ```
 
-For an existing node, the key is the initial user's:
+For a node uc-node has already built, the key is the initial user's:
 
 ```sh
-ssh -p 2222 initial@203.0.113.10 true && echo ok
+ssh initial@203.0.113.10 true && echo ok
 ```
 
 Run each test once. If it fails, fix the cause before trying again: each failed login counts towards OpenSSH 10's PerSourcePenalties, which blocks your address for a while after repeated failures.
@@ -173,11 +125,7 @@ cat /tmp/raw-example-org.key >> ~/.ssh/known_hosts
 rm /tmp/raw-example-org.key
 ```
 
-uc-node looks the host key up under the bare address, whatever the port, so one line covers port 22 and `ssh_port`. For an existing node that listens on another port, read the key from that port and write it under the bare address:
-
-```sh
-ssh-keyscan -p 2222 -t ed25519 203.0.113.10 | sed 's/^\[\([^]]*\)\]:[0-9]*/\1/' > /tmp/raw-example-org.key
-```
+uc-node looks the host key up under the bare address, whatever the port, so one line covers port 22 and `ssh_port`.
 
 A manual `ssh -p 2222` looks the key up under `[203.0.113.10]:2222` instead, so it asks about the key once. Check the fingerprint it shows against the one above.
 
@@ -185,7 +133,7 @@ Never turn host key checking off to save this step, with `StrictHostKeyChecking=
 
 ## Adopt the node
 
-The first build of a host adopts it: it writes the ownership marker `/etc/uc-raw-node/owner`. Give `-e uc_raw_node_adopt=true` only for the host you ordered, or the existing node you mean to rebuild. A wrong address in a node definition then fails safely, instead of reconfiguring someone else's server.
+The first build of a host adopts it: it writes the ownership marker `/etc/uc-raw-node/owner`. Give `-e uc_raw_node_adopt=true` only for the host you ordered. A wrong address in a node definition then fails safely, instead of reconfiguring someone else's server.
 
 ```sh
 UC_CONTROLLER=~/uc-controller scripts/build ~/.private/uc/example-org/uc-inventory raw.example.org -e uc_raw_node_adopt=true --ask-become-pass
@@ -193,7 +141,7 @@ UC_CONTROLLER=~/uc-controller scripts/build ~/.private/uc/example-org/uc-invento
 
 `scripts/build` passes every argument after the node's name to `ansible-playbook`. `UC_CONTROLLER` names the uc-controller checkout, whose checker the build runs on the confirmation. Without it, the build says that the confirmation was not checked.
 
-`--ask-become-pass` asks for the initial user's password: the batch password of the batch the node definition names, whose hash is `initial_password_hash` in `~/.secrets/uc/build/batches/raw-1970-01-01-01.yml`. Every ssh build needs it, the first included: after the configure play, the build switches to the initial user, and the reboot runs with `sudo`.
+`--ask-become-pass` asks for the initial user's password: the batch password of the batch the node definition names, whose hash is `initial_password_hash` in `~/.secrets/uc/build/batches/raw-YYYY-MM-DD-NN.yml`. Every ssh build needs it, the first included: after the configure play, the build switches to the initial user, and the reboot runs with `sudo`.
 
 ### Give the initial user's password, not the provider's
 
@@ -206,7 +154,7 @@ The provider's root password is not used anywhere in the build. After the first 
 The build does not compare the password you type with `initial_password_hash`, so check it by hand before an adoption build. This hashes the password you type with the salt of the batch's hash, and says whether the two match, without showing either. In bash:
 
 ```sh
-batch=raw-1970-01-01-01
+batch=raw-YYYY-MM-DD-NN   # the batch the node definition names
 hash=$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["initial_password_hash"])' \
   ~/.secrets/uc/build/batches/"$batch".yml)
 IFS= read -rs -p 'Batch password: ' pw; echo
@@ -281,24 +229,6 @@ UC_CONTROLLER=~/uc-controller scripts/build ~/.private/uc/example-org/uc-invento
 
 Expected: `changed=0` for localhost and `changed=3` for the node, with `failed=0`: the reboot, the confirmation, whose timestamp changes, and the candidate, whose build time changes. The build reboots on every run, on purpose.
 
-## Rebuild a node made by an earlier version
-
-A node an earlier version built is adopted like any existing node: [prepare it](#prepare-an-existing-node), then [adopt it](#adopt-the-node). Two things can differ.
-
-### The node never finished booting
-
-If the node has cloud-init and Foomuuri, and was rebooted before this version disabled cloud-init, it may be stuck in `starting`. The build then stops at its first boot wait, with the jobs cloud-init is waiting for and the ordering cycle. Disable cloud-init by hand and reboot:
-
-```sh
-ssh -t -p 2222 initial@203.0.113.10 'sudo touch /etc/cloud/cloud-init.disabled && sudo systemctl reboot'
-```
-
-Then run the adoption build again.
-
-### The node has no marker
-
-uc-raw-node did not write `/etc/uc-raw-node/owner`, so the first build with this version needs `-e uc_raw_node_adopt=true`, as for a fresh install.
-
 ## What the ssh platform does not do yet
 
 - Move SSH to another port after the first build. Build first with `ssh_port: 22`. A later change of `ssh_port` makes the build look for the node on the new port while sshd still listens on the old one.
@@ -327,7 +257,7 @@ Make a new batch with `scripts/new-batch`, with a new batch password, and write 
 The node definition holds root_password_hash or initial_password_hash, which are no longer used. Make a batch with scripts/new-batch, ...
 ```
 
-The node definition was written for uc-node 0.2.0 or earlier. Move its hashes into a batch, or rotate them, and remove them from the node definition, as [Move node definitions from ~/.secrets/uc-raw/](0-set-up-a-client.md#move-node-definitions-from-secretsuc-raw) shows. Nothing was changed on the node.
+A node definition never holds a password hash: the hashes are in the batch its `raw_node_batch` names. Remove both from the node definition, or write it again with `scripts/new-node`, and make the batch with `scripts/new-batch` if it has no file. Nothing was changed on the node.
 
 ### uc_client_inventory must be the absolute path of a client inventory
 
@@ -359,7 +289,7 @@ The node was built, but uc-controller's checker found that the confirmation brea
 The node definition sets hostname, which is no longer used. Rename hostname to client_domain in the node definition.
 ```
 
-The node definition is in the old format. Update it as [Update the node definition](#update-the-node-definition) shows. Nothing was changed on the node.
+`hostname` is not a node definition field. The node's names come from `client_domain` and `node_label`. Write the node definition again with `scripts/new-node`. Nothing was changed on the node.
 
 ### node_address must be an address
 
@@ -388,13 +318,13 @@ Neither the initial user nor root accepted the key ssh offered. The task above t
 - If the key is outside the default key files, add the entry, as [Add the node to ~/.ssh/config](#add-the-node-to-sshconfig) shows. A manual `ssh -i <key>` working is the sign of this: the build does not use `-i`.
 - If the entry is there, check that its `Host` line is the address, and that it comes before any `Host *` block.
 - On a fresh install, check that the key is in root's `authorized_keys`.
-- On an existing node, check `ssh_port`: the build looks for the initial user on `ssh_port`, and for root on port 22.
+- On a node uc-node has already built, check `ssh_port`: the build looks for the initial user on `ssh_port`, and for root on port 22.
 
 Test with one plain `ssh` before running the build again.
 
 ### Could not log in, with Connection refused or timed out
 
-The node is not listening on that port, the firewall drops your address, or the address is wrong. On an existing node, check `ssh_port` against the port the node really uses. If you tried several times in a row, PerSourcePenalties may be closing your connections, see [After repeated failed logins](#after-repeated-failed-logins).
+The node is not listening on that port, the firewall drops your address, or the address is wrong. On a node uc-node has already built, check `ssh_port` against the port the node really uses. If you tried several times in a row, PerSourcePenalties may be closing your connections, see [After repeated failed logins](#after-repeated-failed-logins).
 
 ### Connection closed by remote host
 
@@ -414,7 +344,7 @@ Unset `ANSIBLE_HOST_KEY_CHECKING`, and remove `host_key_checking = False` from a
 203.0.113.10 has no /etc/uc-raw-node/owner, so nothing was changed. Adopt only the host that was ordered for raw.example.org: if this is that host, run again with -e uc_raw_node_adopt=true.
 ```
 
-This is the first build of this host with uc-node, or the address is wrong. If it is the host you ordered, or the existing node you mean to rebuild, run again with `-e uc_raw_node_adopt=true`.
+This is the first build of this host with uc-node, or the address is wrong. If it is the host you ordered, run again with `-e uc_raw_node_adopt=true`.
 
 ### The ownership marker holds something else
 
@@ -430,7 +360,7 @@ Another tool claims the host. Find out who, before changing anything.
 203.0.113.10 answers only on the first-contact port 22, and the node definition sets ssh_port 2222.
 ```
 
-The first build of a fresh install must keep `ssh_port: 22`. Set it, build, and leave it. On an existing node, this means the initial user could not log in on `ssh_port`: check the port and the key.
+The first build of a fresh install must keep `ssh_port: 22`. Set it, build, and leave it.
 
 ### Missing sudo password
 
@@ -478,6 +408,7 @@ The node booted, but systemd skipped a unit to break a cycle, and the task above
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.3.0 | 2026-11-27 | Preparing an existing node and rebuilding a node made by an earlier version removed, with the other text on moving from uc-node 0.2.0 or uc-raw-node: nothing runs 0.2.0. Batch names in commands are `raw-YYYY-MM-DD-NN`, since `raw-1970-01-01-01` is reserved for documents and tests |
 | 0.2.0 | 2026-11-27 | Node definitions in the client inventory's `intake/`, built with `scripts/build`, with the hashes in a build batch: the password check reads the batch without showing the hash, a lost password means a new batch, and an old node definition is moved by guide 0. The confirmation and the candidate added to what the build does and checks, a second build changes three things, and troubleshooting for a hash in the node definition, the client inventory, `uc_secret` and the checker |
 | 0.1.3 | 2026-11-24 | Explained that `--ask-become-pass` wants the initial user's password, not the provider's root password, showed how to check it against `initial_password_hash` before the first build, and how to recover from Incorrect sudo password |
 | 0.1.2 | 2026-11-24 | updated root password test so VPS console is not required |

@@ -1,7 +1,7 @@
 ---
 title: Hand Over to the Fleet
 description: What connected securely means, where a built node's confirmation and candidate are, how to compare its fingerprint at the console, review and commit the candidate, and admit it with uc-controller's 05_admit.yml, and what a rejection looks like and what to do with it.
-version: 0.1.1
+version: 0.1.2
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -209,6 +209,31 @@ When a task fails, or the node is unreachable, after the node is in the build's 
 
 A failure before the node exists, such as a node definition the check play refuses or an Incus instance uc-node does not own, is not a rejection: there is no node, and the build's message says what to fix.
 
+### The candidate leaves the working tree
+
+The candidate is removed from the client inventory's working tree even when it was committed, as it is once [Review and commit the candidate](#review-and-commit-the-candidate) is done. `git status` then shows a deletion:
+
+```sh
+cd ~/.private/uc/example-org/uc-inventory
+git status --short
+```
+
+Output example:
+
+```text
+ D candidates/dev.example.org.yml
+```
+
+Commit the deletion, so the client inventory keeps saying what the fleet wants, which no longer includes this candidate:
+
+```sh
+git rm --quiet candidates/dev.example.org.yml
+UC_CONTROLLER=~/uc-controller git commit -m "Remove the candidate dev.example.org, rejected"
+cd -
+```
+
+Keep the node definition in `intake/` if you mean to fix and rebuild the node: a build that passes writes the candidate again, to be reviewed and committed as before. If the candidate was never committed, `git status` shows nothing for it, and there is nothing to commit.
+
 ### What a rejection looks like
 
 ```yaml
@@ -250,5 +275,6 @@ Leave the rejection files where they are. They are the record of what happened, 
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.2 | 2026-11-27 | A rejection removes the candidate from the working tree even when it was committed, so `git status` shows a deletion, and committing it keeps the client inventory saying what the fleet wants |
 | 0.1.1 | 2026-11-27 | Batch names in commands are `raw-YYYY-MM-DD-NN`, since `raw-1970-01-01-01` is reserved for documents and tests, and admission takes the batch from `$batch`. Load the client's key before admission |
 | 0.1.0 | 2026-11-27 | First version, provisional: connected securely, the confirmation and the candidate, comparing the fingerprint at the console, reviewing and committing the candidate, admission with `05_admit.yml` through `admit_candidates` until it reads `candidates/`, and rejections |

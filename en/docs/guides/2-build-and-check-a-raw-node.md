@@ -1,7 +1,7 @@
 ---
 title: Build and Check a Raw Node
 description: How to write a node definition into a client inventory, build the raw node on the local Incus host with scripts/build, check the node, its confirmation and its candidate, build it again, and check that an instance uc-node does not own is refused.
-version: 0.2.0
+version: 0.2.1
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -11,7 +11,7 @@ language: en-CA
 
 This guide writes a node definition with `scripts/new-node`, builds the raw node on the local Incus host with `scripts/build`, and checks the result. It assumes the client is set up as [Set Up a Client](0-set-up-a-client.md) describes, with a build batch and the defaults from [Set Up the Defaults for New Nodes](1-setup-the-defaults-for-new-nodes.md), and that the requirements in the [README](../../../README.md#requirements) are installed. To build on a host reached over SSH instead, see [Build a Node on an SSH Host](3-build-a-node-on-an-ssh-host.md).
 
-Run every command from the repository directory. The examples use the client `example-org`, whose inventory is `~/.private/uc/example-org/uc-inventory`, the domain `example.org`, and the batch `raw-1970-01-01-01`.
+Run every command from the repository directory. The examples use the client `example-org`, whose inventory is `~/.private/uc/example-org/uc-inventory`, the domain `example.org`, and the batch `raw-YYYY-MM-DD-NN`: give the name of your batch, with the date it was made.
 
 ## Write the node definition
 
@@ -25,14 +25,14 @@ With the defaults, this is five answers:
 Use defaults from ~/.private/uc/example-org/uc-inventory/intake/defaults.yml? [Y/n]: y
 Node label (raw, dev, stage, prod) [raw]:
 Platform (incus, ssh) [incus]:
-Batch (raw-YYYY-MM-DD-NN) []: raw-1970-01-01-01
+Batch (raw-YYYY-MM-DD-NN) []: raw-YYYY-MM-DD-NN
 Write ~/.private/uc/example-org/uc-inventory/intake/raw.example.org.yml? [y/N]: y
 Wrote ~/.private/uc/example-org/uc-inventory/intake/raw.example.org.yml
-
-Build it with:
-
-  scripts/build ~/.private/uc/example-org/uc-inventory raw.example.org
+It is committed with the node's candidate, after the build, as
+en/docs/guides/4-hand-over-to-the-fleet.md says.
 ```
+
+If the first line is "No defaults file" instead of "Use defaults", stop with Ctrl-C: `intake/defaults.yml` is missing, and the script would offer no client domain and no key. Write it as [Set Up the Defaults for New Nodes](1-setup-the-defaults-for-new-nodes.md) shows.
 
 The node definition is named after the node's fully qualified domain name, `<node label>.<client domain>`, and written with mode `0644`. It holds no secret: it names its batch in `raw_node_batch`, and the build reads the batch's password hashes through `uc_secret`.
 
@@ -160,5 +160,6 @@ Keep `intake/raw.example.org.yml` if you want to build the node again.
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.2.1 | 2026-11-27 | `scripts/new-node` no longer prints the build command, and says "No defaults file" without `intake/defaults.yml`. The batch is `raw-YYYY-MM-DD-NN`, since `raw-1970-01-01-01` is reserved for documents and tests |
 | 0.2.0 | 2026-11-27 | Node definitions in the client inventory's `intake/`, written with `scripts/new-node <client inventory>` and built with `scripts/build`. The batch, the confirmation, the candidate and the fingerprint printed at the end. A second build changes three things. Front matter added |
 | 0.1.0 | 2026-11-24 | First version, with node definitions in `~/.secrets/uc-raw/` |

@@ -14,6 +14,19 @@ node_required_fields:
   - ssh_public_key
   - raw_node_batch
 
+# The fields a node definition may set and need not, each with a default:
+# node_label raw, platform incus, ssh_port 22 and ssh_sources any. With
+# node_required_fields and the platform's required_fields, they are every
+# field a node definition may hold, as the README's field table lists them.
+# A node definition is passed with -e, which overrides every variable, so
+# the check play refuses any other field, and scripts/new-node writes only
+# these.
+node_optional_fields:
+  - node_label
+  - platform
+  - ssh_port
+  - ssh_sources
+
 # Connection variables each platform's create play sets with add_host. A
 # node definition is passed with -e, which would override them, so the
 # check play refuses a node definition that sets one. ansible_become_password

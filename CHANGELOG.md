@@ -22,6 +22,7 @@ To be released as 0.3.0. 0.3.0 cannot read 0.2.0's node definitions, and has no 
 ### Changed
 
 - Node definitions live in the client inventory's `intake/`, mode `0644`, without secrets, and name their batch in the new required field `raw_node_batch`. `root_password_hash` and `initial_password_hash` are read from the batch, and the build refuses a node definition that still holds either.
+- The check play refuses a node definition whose file in `intake/` sets a field outside `node_required_fields`, the new `node_optional_fields` and the platform's `required_fields`, naming it, and `scripts/new-node` refuses a defaults file with a setting it does not offer.
 - The check play requires `uc_client_inventory`, refuses a node definition that is not in its `intake/`, checks `raw_node_batch`, and reads the batch once, so a missing or badly protected batch file stops the build before anything is created.
 - `scripts/new-node <client inventory>` reads `intake/defaults.yml`, refuses one that holds a hash, asks for the batch, and no longer asks for passwords.
 - `scripts/new-node` says when `intake/defaults.yml` is missing, and offers no key then instead of `~/.ssh/id_ed25519.pub`. Its client domain question gives an example, and asks again when the domain does not match the client's folder. Its key question says it takes a key line or a path. It no longer prints the build command.

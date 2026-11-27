@@ -92,6 +92,13 @@ def load_defaults():
             "Remove root_password_hash and initial_password_hash from it: the hashes are in the batch, "
             "which scripts/new-batch writes. See en/docs/guides/0-set-up-a-client.md."
         )
+    unknown = [str(key) for key in data if key not in DEFAULTS_SETTINGS]
+    if unknown:
+        sys.exit(
+            f"new-node: {show(DEFAULTS_FILE)} sets {', '.join(unknown)}, which new-node does not offer. "
+            f"A defaults file holds only {', '.join(DEFAULTS_SETTINGS)}. "
+            "See en/docs/guides/1-setup-the-defaults-for-new-nodes.md."
+        )
     return data
 
 
@@ -107,6 +114,10 @@ def load_group_var(path, name, kind):
 
 NODE_LABELS = [str(label) for label in load_group_var(LABELS_FILE, "node_labels", list)]
 PLATFORMS = load_group_var(PLATFORMS_FILE, "platforms", dict)
+# The fields a node definition may hold, which build.yml's check play
+# allows: these, and the platform's required_fields.
+NODE_FIELDS = [str(field) for field in load_group_var(PLATFORMS_FILE, "node_required_fields", list)
+               + load_group_var(PLATFORMS_FILE, "node_optional_fields", list)]
 # The same rule build.yml checks node_address against.
 NODE_ADDRESS = re.compile(load_group_var(SSH_FILE, "node_address_pattern", str))
 # The same rule build.yml checks raw_node_batch against.
@@ -340,6 +351,11 @@ QUESTIONS = [
 ]
 
 
+# The settings a defaults file may hold: one per question. new-node refuses
+# any other, so a misspelt or unknown setting is not silently ignored.
+DEFAULTS_SETTINGS = [name for name, _, _ in QUESTIONS]
+
+
 # Asked even when the defaults file is used, since they differ from node to
 # node. A platform's own fields, such as node_address, are always asked too.
 ALWAYS_ASKED = ("node_label", "platform", "raw_node_batch")
@@ -391,6 +407,10 @@ def gather(defaults):
 
     confirm_sources(values)
     return values
+
+
+def allowed_fields(platform):
+    return NODE_FIELDS + [str(field) for field in (PLATFORMS[platform] or {}).get("required_fields") or []]
 
 
 def node_definition(values):
@@ -480,7 +500,12 @@ def main():
     if not ask_yes(f"{question} {show(path)}?", False):
         print("Nothing written.")
         return 1
-    write(path, node_definition(values))
+    data = node_definition(values)
+    unknown = [field for field in data if field not in allowed_fields(values["platform"])]
+    if unknown:
+        sys.exit(f"new-node: {', '.join(unknown)} would be written, and {show(PLATFORMS_FILE)} does not list "
+                 "it as a node definition field, so build.yml would refuse the file. Nothing written.")
+    write(path, data)
     print(f"Wrote {show(path)}")
     warn_missing_batch(values["raw_node_batch"])
     print("It is committed with the node's candidate, after the build, as\n"

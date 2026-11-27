@@ -71,7 +71,7 @@ Values passed with `-e` override every value in `inventory/group_vars/all/`. So:
 | `ssh_sources` | no, default any | Addresses or networks allowed to reach SSH |
 | `raw_node_batch` | yes | The build batch, `raw-YYYY-MM-DD-NN`, whose root password and batch password the node is built with |
 
-`root_password_hash` and `initial_password_hash` are no longer fields: they are in the batch.
+These are the only fields. `inventory/group_vars/all/platforms.yml` lists them, in `node_required_fields`, `node_optional_fields` and each platform's `required_fields`, and the build refuses a node definition whose file in `intake/` sets any other, naming it, since `-e` would let it override any variable. Extra variables given on the command line beside the node definition, such as `-e uc_raw_node_adopt=true`, are not node definition fields. `root_password_hash` and `initial_password_hash` are not fields: they are in the batch.
 
 ## Naming
 

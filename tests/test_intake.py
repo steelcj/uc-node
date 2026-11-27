@@ -120,6 +120,32 @@ class CheckPlay(unittest.TestCase):
         self.rewrite_definition(client_domain="example.net")
         self.refused("or the one there describes another node", definition=outside)
 
+    def test_a_field_the_build_does_not_know(self):
+        self.rewrite_definition(foomuuri_ssh_port=2222)
+        output = self.refused("sets foomuuri_ssh_port, which is not a node definition field")
+        self.assertIn("Remove it", output)
+
+    def test_several_fields_the_build_does_not_know(self):
+        self.rewrite_definition(users=[{"name": "root"}], ssh_client_options="-o StrictHostKeyChecking=no")
+        self.refused("sets users, ssh_client_options, which are not node definition fields")
+
+    def test_another_platforms_field(self):
+        # node_address is the ssh platform's, so an Incus node definition
+        # may not set it.
+        self.rewrite_definition(node_address="203.0.113.10")
+        self.refused("sets node_address, which is not a node definition field")
+
+    def test_only_known_fields_pass(self):
+        self.rewrite_definition(node_label="raw", platform="incus", ssh_port=22, ssh_sources=["198.51.100.10/32"])
+        status, output = self.s.playbook()
+        self.assertIn("fake incus: launch", output)
+        self.assertNotIn("not a node definition field", output)
+
+    def test_an_extra_variable_on_the_command_line_is_allowed(self):
+        status, output = self.s.playbook("-e", "uc_raw_node_adopt=true")
+        self.assertIn("fake incus: launch", output)
+        self.assertNotIn("not a node definition field", output)
+
     def test_hash_in_the_node_definition(self):
         for key in ("root_password_hash", "initial_password_hash"):
             with self.subTest(key=key):
@@ -326,6 +352,24 @@ class NewNode(unittest.TestCase):
         result = self.without_defaults(["example.com", "y"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((self.inventory / "intake" / "dev.example.com.yml").exists())
+
+    def test_refuses_a_defaults_setting_it_does_not_offer(self):
+        for key in ("initial_username", "foomuuri_ssh_port", "node_address"):
+            with self.subTest(key=key):
+                self.defaults.write_text(f"client_domain: example.org\n{key}: x\n")
+                result = self.run_new_node(self.GOOD)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"sets {key}, which new-node does not offer", result.stderr)
+                self.assertFalse((self.inventory / "intake" / "dev.example.org.yml").exists())
+
+    def test_writes_only_fields_the_build_allows(self):
+        platforms = yaml.safe_load((helpers.REPO / "inventory" / "group_vars" / "all" / "platforms.yml").read_text())
+        result = self.run_new_node(self.GOOD)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        data = yaml.safe_load((self.inventory / "intake" / "dev.example.org.yml").read_text())
+        allowed = (platforms["node_required_fields"] + platforms["node_optional_fields"]
+                   + platforms["platforms"]["incus"]["required_fields"])
+        self.assertEqual([field for field in data if field not in allowed], [])
 
     def test_never_asks_for_a_password(self):
         result = self.run_new_node(self.GOOD)

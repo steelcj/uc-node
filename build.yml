@@ -116,6 +116,30 @@
       vars:
         uc_intake: "{{ (lookup('ansible.builtin.file', uc_intake_file) | from_yaml) if uc_intake_file is file else {} }}"
 
+    # A node definition is passed with -e, which overrides every variable,
+    # not only the ones the tasks above refuse by name. A stray users,
+    # foomuuri_* or ssh_client_options would change the build without a
+    # word, so the node definition's own fields, the keys of its file in
+    # intake/, must each be one platforms.yml lists. Extra variables given
+    # beside it on the command line, such as -e uc_raw_node_adopt=true, are
+    # not in the file, and are not checked here.
+    - name: Refuse a node definition field the build does not know
+      ansible.builtin.assert:
+        that:
+          - uc_intake_fields is mapping
+          - uc_unknown_fields | length == 0
+        fail_msg: >-
+          {{ uc_intake_file }} sets {{ uc_unknown_fields | join(', ') }}, which
+          {{ 'is not a node definition field' if uc_unknown_fields | length == 1 else 'are not node definition fields' }}.
+          A node definition is passed with -e, which overrides every variable, so the build refuses
+          any field but {{ uc_allowed_fields | join(', ') }}. Remove
+          {{ 'it' if uc_unknown_fields | length == 1 else 'them' }}, or write the node definition again with scripts/new-node.
+        quiet: true
+      vars:
+        uc_intake_fields: "{{ lookup('ansible.builtin.file', uc_intake_file) | from_yaml }}"
+        uc_allowed_fields: "{{ node_required_fields + node_optional_fields + platforms[platform].required_fields }}"
+        uc_unknown_fields: "{{ (uc_intake_fields.keys() | list if uc_intake_fields is mapping else []) | reject('in', uc_allowed_fields) | list }}"
+
     - name: Check node_address
       ansible.builtin.assert:
         that:

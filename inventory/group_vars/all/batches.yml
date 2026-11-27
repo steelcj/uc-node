@@ -1,0 +1,18 @@
+---
+# inventory/group_vars/all/batches.yml
+#
+# Build batches. A batch is the set of nodes built with one root password
+# and one initial user's password, the batch password. Its hashes are in
+# ~/.secrets/uc/build/batches/<batch>.yml, written by scripts/new-batch and
+# read through uc_secret. The batch password itself is uc-controller's, and
+# uc-node never holds it.
+
+# The rule for a batch name, raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01.
+# build.yml checks raw_node_batch against it before anything is created, and
+# scripts/new-batch and scripts/new-node read it from here. new-batch also
+# checks that the date is a real one.
+raw_node_batch_pattern: '^raw-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}$'
+
+# RN-ACC-08: the batch password is at least this many characters.
+# scripts/new-batch refuses a shorter one.
+raw_node_batch_password_minimum: 15

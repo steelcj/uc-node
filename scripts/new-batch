@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""Write a build batch: the hashes of its root password and batch password.
+
+    scripts/new-batch <batch>
+
+<batch> is raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01, the rule in
+inventory/group_vars/all/batches.yml, on a real date. The script reads the
+root password once and the batch password twice from the terminal, without
+echo, refuses a batch password shorter than 15 characters (RN-ACC-08), and
+writes
+
+    ~/.secrets/uc/build/batches/<batch>.yml
+
+mode 0600, in directories of mode 0700, holding root_password_hash and
+initial_password_hash, the SHA-512 crypt hashes made by openssl passwd -6.
+Each password is given to openssl on standard input, never as an argument.
+It refuses a batch whose file exists: a batch is never rewritten, only
+retired and replaced by a new one.
+
+The batch password itself goes to uc-controller, by its guide
+en/docs/guides/batch-secrets.md. uc-node never stores it.
+
+The environment variable UC_NODE_SECRETS_DIR names another secrets root in
+place of ~/.secrets/uc/build, for the tests, as it does for uc_secret.
+
+Exit status 0 when the file was written, 1 when nothing was written, 2 on
+bad arguments.
+"""
+
+import datetime
+import getpass
+import os
+import re
+import stat
+import subprocess
+import sys
+import warnings
+from pathlib import Path
+
+import yaml
+
+REPO = Path(__file__).resolve().parent.parent
+BATCHES_FILE = REPO / "inventory" / "group_vars" / "all" / "batches.yml"
+CONTROLLER_GUIDE = "en/docs/guides/batch-secrets.md"
+
+
+def fail(message, status=1):
+    print(f"new-batch: {message}", file=sys.stderr)
+    sys.exit(status)
+
+
+def show(path):
+    """A path as the operator would type it, with ~ for the home directory."""
+    text, home = str(path), str(Path.home())
+    return "~" + text[len(home):] if text == home or text.startswith(home + "/") else text
+
+
+def load_rules():
+    with BATCHES_FILE.open(encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    pattern = data.get("raw_node_batch_pattern")
+    minimum = data.get("raw_node_batch_password_minimum")
+    if not isinstance(pattern, str) or not isinstance(minimum, int):
+        fail(f"{show(BATCHES_FILE)} must hold raw_node_batch_pattern and raw_node_batch_password_minimum.", 2)
+    return re.compile(pattern), minimum
+
+
+def secrets_root():
+    configured = os.environ.get("UC_NODE_SECRETS_DIR")
+    return Path(configured).expanduser() if configured else Path.home() / ".secrets" / "uc" / "build"
+
+
+def check_batch(name, pattern):
+    """The batch name, or exit saying what is wrong with it."""
+    if not pattern.fullmatch(name):
+        fail(f"{name!r} is not a batch name. Use raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01.", 2)
+    try:
+        datetime.date.fromisoformat(name[4:14])
+    except ValueError:
+        fail(f"{name!r} does not hold a real date. Use raw-YYYY-MM-DD-NN, such as raw-1970-01-01-01.", 2)
+    return name
+
+
+def check_private_directory(path):
+    """Refuse a directory the lookup would refuse, before asking for anything."""
+    info = path.stat()
+    if info.st_uid != os.getuid():
+        fail(f"{show(path)} is not owned by you. Nothing was written.")
+    mode = stat.S_IMODE(info.st_mode)
+    if mode != 0o700:
+        fail(f"{show(path)} is mode {mode:04o}, not 0700. Fix it with chmod 0700 {show(path)}. Nothing was written.")
+
+
+def make_directories(root, batches):
+    """Create every missing directory down to batches/ with mode 0700, and
+    check the root and batches/, which uc_secret checks too."""
+    missing = []
+    for directory in [batches, *batches.parents]:
+        if directory.exists():
+            break
+        missing.append(directory)
+    for directory in reversed(missing):
+        directory.mkdir(mode=0o700)
+        directory.chmod(0o700)
+    for directory in (root, batches):
+        if not directory.is_dir():
+            fail(f"{show(directory)} is not a directory. Nothing was written.")
+        check_private_directory(directory)
+
+
+def read_password(prompt):
+    """One password from the terminal, never echoed. Refuses to read from
+    anything but a terminal, where getpass would echo it."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", getpass.GetPassWarning)
+        try:
+            return getpass.getpass(prompt)
+        except getpass.GetPassWarning:
+            fail("the passwords are read from a terminal, and there is none. Nothing was written.")
+
+
+def hash_password(password):
+    """The SHA-512 crypt hash, with openssl reading the password on standard input."""
+    result = subprocess.run(
+        ["openssl", "passwd", "-6", "-stdin"],
+        input=password + "\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    value = result.stdout.strip()
+    if result.returncode != 0 or not value.startswith("$6$"):
+        fail("openssl passwd -6 did not make a hash. Nothing was written.")
+    return value
+
+
+def write_batch(path, batch, root_hash, initial_hash):
+    text = (
+        "---\n"
+        f"# Build batch {batch}, written by uc-node's scripts/new-batch.\n"
+        "# The SHA-512 crypt hashes of the root password and the batch password,\n"
+        "# read only through uc_secret. Never commit this file, or copy it into a\n"
+        "# repository, a document or a session.\n"
+        f"root_password_hash: '{root_hash}'\n"
+        f"initial_password_hash: '{initial_hash}'\n"
+    )
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = None
+            handle.write(text)
+    except BaseException:
+        if descriptor is not None:
+            os.close(descriptor)
+        path.unlink(missing_ok=True)
+        raise
+
+
+def main(argv):
+    if len(argv) != 1 or argv[0] in ("-h", "--help"):
+        print(__doc__.strip(), file=sys.stderr)
+        return 0 if argv[:1] in (["-h"], ["--help"]) else 2
+    pattern, minimum = load_rules()
+    batch = check_batch(argv[0], pattern)
+    root = secrets_root()
+    batches = root / "batches"
+    path = batches / f"{batch}.yml"
+    if path.exists() or path.is_symlink():
+        fail(f"{show(path)} exists. A batch is never rewritten: retire it, or choose the next number.")
+    make_directories(root, batches)
+
+    root_password = read_password("Root password: ")
+    if not root_password:
+        fail("the root password is empty. Nothing was written.")
+    batch_password = read_password(f"Batch password, for the initial user (at least {minimum} characters): ")
+    if len(batch_password) < minimum:
+        fail(f"the batch password is shorter than {minimum} characters (RN-ACC-08). Nothing was written.")
+    if read_password("Batch password again: ") != batch_password:
+        fail("the two entries of the batch password differ. Nothing was written.")
+
+    root_hash = hash_password(root_password)
+    initial_hash = hash_password(batch_password)
+    del root_password, batch_password
+    write_batch(path, batch, root_hash, initial_hash)
+
+    print(f"Wrote {show(path)}, mode 0600, with root_password_hash and initial_password_hash.")
+    print(
+        "\nThe batch password itself goes to uc-controller, in its file\n"
+        f"~/.secrets/uc/fleet/batches/{batch}.yml, by {CONTROLLER_GUIDE} in uc-controller.\n"
+        "uc-node never stores it. Keep both passwords where you keep secrets that must\n"
+        "survive the loss of this machine, such as a password manager."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (KeyboardInterrupt, EOFError):
+        print("\nNothing written.", file=sys.stderr)
+        sys.exit(1)

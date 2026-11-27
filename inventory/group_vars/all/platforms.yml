@@ -6,13 +6,13 @@
 # before anything is created, and scripts/new-node offers its keys.
 
 # The fields every node definition must set, whatever its platform. They
-# have no default.
+# have no default. The password hashes are not among them: they are in the
+# batch that raw_node_batch names, read through uc_secret (users.yml).
 node_required_fields:
   - client_domain
-  - root_password_hash
   - initial_username
-  - initial_password_hash
   - ssh_public_key
+  - raw_node_batch
 
 # Connection variables each platform's create play sets with add_host. A
 # node definition is passed with -e, which would override them, so the

@@ -2,11 +2,20 @@
 # Leave /etc/cron.allow alone: it is outside the raw node contract.
 users_cron_allow: false
 
+# Both password hashes come from the node's batch,
+# ~/.secrets/uc/build/batches/<raw_node_batch>.yml, written by
+# scripts/new-batch, and are read only through the uc_secret lookup in
+# plugins/lookup/. A lookup is evaluated when its value is used, so the file
+# is read by the users role, and once by the check play in build.yml.
+#
+# The lookups are written here, not as root_password_hash and
+# initial_password_hash variables, so a node definition that still sets
+# either is caught by the check play rather than overriding the batch.
 users:
   - name: root
-    password: "{{ root_password_hash }}"
+    password: "{{ lookup('uc_secret', 'batches/' ~ raw_node_batch, key='root_password_hash') }}"
   - name: "{{ initial_username }}"
-    password: "{{ initial_password_hash }}"
+    password: "{{ lookup('uc_secret', 'batches/' ~ raw_node_batch, key='initial_password_hash') }}"
     groups:
       - "{{ 'wheel' if ansible_facts['os_family'] == 'RedHat' else 'sudo' }}"
     authorized_keys:

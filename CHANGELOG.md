@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-To be released as 0.3.0. It breaks every existing node definition: node definitions must be moved from `~/.secrets/uc-raw/` into a client inventory's `intake/`, without their password hashes, which go into a build batch. [Set Up a Client](en/docs/guides/0-set-up-a-client.md) shows how.
+To be released as 0.3.0. 0.3.0 cannot read 0.2.0's node definitions, and has no upgrade path from it: start from [Set Up a Client](en/docs/guides/0-set-up-a-client.md).
 
 ### Added
 
@@ -24,12 +24,15 @@ To be released as 0.3.0. It breaks every existing node definition: node definiti
 - Node definitions live in the client inventory's `intake/`, mode `0644`, without secrets, and name their batch in the new required field `raw_node_batch`. `root_password_hash` and `initial_password_hash` are read from the batch, and the build refuses a node definition that still holds either.
 - The check play requires `uc_client_inventory`, refuses a node definition that is not in its `intake/`, checks `raw_node_batch`, and reads the batch once, so a missing or badly protected batch file stops the build before anything is created.
 - `scripts/new-node <client inventory>` reads `intake/defaults.yml`, refuses one that holds a hash, asks for the batch, and no longer asks for passwords.
+- `scripts/new-node` says when `intake/defaults.yml` is missing, and offers no key then instead of `~/.ssh/id_ed25519.pub`. Its client domain question gives an example, and asks again when the domain does not match the client's folder. Its key question says it takes a key line or a path. It no longer prints the build command.
+- Batch names in messages and guides are `raw-YYYY-MM-DD-NN` with the day's date: `raw-1970-01-01-NN` is reserved for documents and tests.
 - A second build changes the reboot, the confirmation and the candidate.
 - The guides 1 to 3, the guide to adding a platform, and the README describe the client inventory, `scripts/build` and batches.
 
 ### Removed
 
 - Every use of `~/.secrets/uc-raw/` from the code.
+- The ssh guide's paths for an existing node and a node made by an earlier version: nothing runs 0.2.0.
 
 ## [0.2.0] - 2026-11-24
 

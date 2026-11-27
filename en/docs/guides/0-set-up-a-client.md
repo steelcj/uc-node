@@ -1,7 +1,7 @@
 ---
 title: Set Up a Client
 description: How to make a client's private folder, its client inventory and its first commit, its client log, the client's SSH key, the defaults for its node definitions, and a build batch, before uc-node builds its first node.
-version: 0.2.0
+version: 0.2.1
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -186,13 +186,15 @@ The private key must be `-rw-------`. The second command prints the key's finger
 # intake/defaults.yml: the defaults uc-node's scripts/new-node offers.
 # No secrets: the password hashes are in the batch.
 client_domain: example.org
-initial_user: initial
+initial_username: initial
 ssh_public_key: ~/.ssh/example-org-raw-initial-id_ed25519.pub
 ssh_port: 22
 ssh_sources: []
 ```
 
-`ssh_public_key` names the client's key from [Make the client's SSH key](#make-the-clients-ssh-key). The file holds no hash. `scripts/new-node` refuses a defaults file that holds `root_password_hash`, `initial_password_hash` or any crypt hash.
+`ssh_public_key` names the client's key from [Make the client's SSH key](#make-the-clients-ssh-key), as the path to its `.pub` file. A path keeps the line short: the key line itself, with the client's comment, is about 130 characters, past the client inventory's yamllint limit of 120. `scripts/new-node` writes the key line into each node definition folded before its comment, which fits, so leave the fold as it is. Then the limit can stay an error in `.yamllint`.
+
+The file holds no hash, and only the settings `scripts/new-node` offers, named as in a node definition, such as `initial_username`. `scripts/new-node` refuses a defaults file that holds `root_password_hash`, `initial_password_hash` or any crypt hash, or a setting it does not offer, and names it.
 
 When `scripts/new-node` finds the file, it asks "Use defaults from ~/.private/uc/example-org/uc-inventory/intake/defaults.yml?". When it does not, it says "No defaults file", and offers no client domain and no key. If you see that, stop with Ctrl-C and check the path.
 
@@ -207,7 +209,9 @@ git add -A
 UC_CONTROLLER=~/uc-controller git commit -m "Start the example-org inventory"
 ```
 
-`git branch --show-current` must print `main`. If the hook refuses the commit, its message names the file and the rule. Node definitions, candidates and admission are committed later, as [Hand Over to the Fleet](4-hand-over-to-the-fleet.md) says.
+`git branch --show-current` must print `main`. If the hook refuses the commit, its message names the file and the rule. The hook shows yamllint's warnings as well, and they do not stop the commit.
+
+The first commit holds the template and `intake/defaults.yml`. A node definition is committed later, with its candidate, after its build, as [Hand Over to the Fleet](4-hand-over-to-the-fleet.md#review-and-commit-the-candidate) says, so the history records a node when it was built and handed over. If a node definition is already in `intake/`, committing it now does no harm: guide 4's `git add` then finds nothing new in it. Candidates and admission are committed later too.
 
 ## Make a build batch
 
@@ -284,5 +288,6 @@ The client is set up. Write the first node definition, and build it, as [Build a
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.2.1 | 2026-11-27 | From phase two's run: the defaults setting is `initial_username`, as in a node definition, and `scripts/new-node` refuses one it does not offer; the key as a path keeps `intake/` within the yamllint limit, so the limit can stay an error; the first commit holds the template and the defaults, and a node definition is committed with its candidate |
 | 0.2.0 | 2026-11-27 | From the operator's notes on setting up `example-org`: `scripts/new-inventory` is uc-controller's, with its output and what a second run does; the branch `main` and the first commit; the client's SSH key, named by `intake/defaults.yml` and `onboard_ssh_private_key_file`; what `scripts/new-node` says without a defaults file; batch names as `raw-YYYY-MM-DD-NN` with the day's date, since `raw-1970-01-01-NN` is reserved for documents and tests. Moving node definitions out of `~/.secrets/uc-raw/` and retiring it removed: nothing runs 0.2.0 |
 | 0.1.0 | 2026-11-27 | First version, provisional: the client's folder, its inventory, log and intake defaults, a build batch for both controllers, moving node definitions out of `~/.secrets/uc-raw/`, and retiring `~/.secrets/uc-raw/` and `~/.secrets/uc-raw-node/` |

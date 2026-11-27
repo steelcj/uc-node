@@ -1,0 +1,66 @@
+---
+# Fail, or be unreachable, in one of several ways, for the tests of
+# plugins/callback/uc_reject.py.
+#
+#   ansible-playbook tests/playbooks/reject.yml -e uc_test_case=<case> \
+#     -e uc_client_inventory=<dir> -e raw_node_batch=raw-1970-01-01-01
+#
+# Cases: raw-node-fails, localhost-fails, unreachable, rescued, ignored,
+# passes. The node is dev.example.org, reached with the local connection;
+# the unreachable one with ssh to a closed port on 127.0.0.1, which is
+# refused before any login is tried.
+- name: Add the node
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Fail on localhost, before the node exists
+      ansible.builtin.fail:
+        msg: "made-up refusal, before the node"
+      when: uc_test_case == 'localhost-fails'
+
+    - name: Add the node to raw_node
+      ansible.builtin.add_host:
+        name: dev.example.org
+        groups: raw_node
+        ansible_connection: "{{ 'ssh' if uc_test_case == 'unreachable' else 'local' }}"
+        ansible_host: 127.0.0.1
+        ansible_port: 1
+        ansible_ssh_common_args: -F /dev/null -o BatchMode=yes -o ConnectTimeout=5 -o ConnectionAttempts=1
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      changed_when: false
+
+- name: Secure the node
+  hosts: raw_node
+  gather_facts: false
+
+  tasks:
+    - name: Reach the node
+      ansible.builtin.ping:
+
+    - name: Note the fingerprint the confirmation gave
+      ansible.builtin.set_fact:
+        uc_node_fingerprint: SHA256:EXAMPLEexampleEXAMPLEexampleEXAMPLEexample0
+        uc_reject_clauses: [RN-SSH-03, Host keys]
+
+    - name: Fail, and be rescued
+      when: uc_test_case == 'rescued'
+      block:
+        - name: Fail inside a block
+          ansible.builtin.fail:
+            msg: made-up node output that must not reach the log
+      rescue:
+        - name: Recover
+          ansible.builtin.debug:
+            msg: rescued
+
+    - name: Fail, ignored
+      ansible.builtin.fail:
+        msg: made-up node output that must not reach the log
+      ignore_errors: true  # noqa: ignore-errors
+      when: uc_test_case == 'ignored'
+
+    - name: Stop if a sudoers rule has NOPASSWD (RN-ACC-07)
+      ansible.builtin.fail:
+        msg: made-up node output that must not reach the log
+      when: uc_test_case == 'raw-node-fails'

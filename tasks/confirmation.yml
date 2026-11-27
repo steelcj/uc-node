@@ -10,12 +10,17 @@
 # types are the contract's, version uc_contract_version: every string is
 # written in double quotes, as the contract's Value types section advises.
 #
+# A task names a contract clause, as in "(RN-REP-01)", only when its failure
+# means the node breaks that clause: the rejection callback lists the
+# clauses the failed task names. When check_raw_confirmation.py fails the
+# confirmation, the clauses it found are set in uc_reject_clauses instead.
+#
 # Sets uc_confirmation_reported, the confirmation as read back from the
 # node, and uc_node_fingerprint, the ED25519 host key's fingerprint in it,
 # for the candidate and for the rejection callback,
 # plugins/callback/uc_reject.py.
 
-- name: Read the hostname (RN-NET-01)
+- name: Read the hostname
   ansible.builtin.command:
     argv: [hostname]
   register: uc_measured_hostname
@@ -40,21 +45,21 @@
   register: uc_measured_machine_id
 
 # getent exits 2 when there is no such account.
-- name: Look for the initial user's account (RN-ACC-01)
+- name: Look for the initial user's account
   ansible.builtin.command:
     argv: [getent, passwd, "{{ initial_username }}"]
   register: uc_measured_account
   changed_when: false
   failed_when: uc_measured_account.rc not in [0, 2]
 
-- name: Read the initial user's groups (RN-ACC-04)
+- name: Read the initial user's groups
   ansible.builtin.command:
     argv: [id, -nG, "{{ initial_username }}"]
   register: uc_measured_groups
   changed_when: false
   when: uc_measured_account.rc == 0
 
-- name: Find the sudoers files (RN-ACC-07)
+- name: Find the sudoers files
   ansible.builtin.find:
     paths: /etc/sudoers.d
     file_type: file
@@ -64,14 +69,14 @@
 # A line is a comment when it starts with #, except #<digits>, which names a
 # user by ID in a rule, and #include or #includedir, which name no rule
 # themselves. grep exits 0 when a rule matches and 1 when none does.
-- name: Look for a sudoers rule with NOPASSWD or !authenticate (RN-ACC-07)
+- name: Look for a sudoers rule with NOPASSWD or !authenticate
   ansible.builtin.command:
     argv: "{{ ['grep', '-q', '-P', '^(?!\\s*#(?![0-9]))(?!\\s*#include).*(NOPASSWD|!authenticate)', '/etc/sudoers'] + (uc_measured_sudoers_d.files | map(attribute='path') | sort | list) }}"
   register: uc_measured_nopasswd
   changed_when: false
   failed_when: uc_measured_nopasswd.rc not in [0, 1]
 
-- name: Read the SSH server's settings (RN-SSH-01, RN-SSH-03)
+- name: Read the SSH server's settings
   ansible.builtin.command:
     argv: [sshd, -T]
   register: uc_measured_sshd
@@ -340,7 +345,7 @@
         msg: "{{ uc_confirmation_result.findings }}"
       when: uc_confirmation_result.findings | default([]) | length > 0
 
-    - name: Stop if the confirmation does not meet the contract (RN-REP-01)
+    - name: Stop if the confirmation does not meet the contract
       ansible.builtin.assert:
         that:
           - uc_confirmation_result.result == 'pass'

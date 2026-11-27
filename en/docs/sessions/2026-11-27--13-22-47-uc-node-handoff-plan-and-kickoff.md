@@ -1,7 +1,7 @@
 ---
 title: Handoff for uc-node, Plan and Kickoff Prompt
 description: The plan for bringing uc-node into line with the node lifecycle, the client inventory layout and the raw node handoff design, so its job ends at connected securely, and the Claude Code kickoff prompt that carries it out.
-version: 0.1.0
+version: 0.1.1
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -120,7 +120,7 @@ Ground rules for the whole phase:
    - Say in a comment in inventory/group_vars/all/foomuuri.yml that the fragment is a bootstrap rule, that onboarding replaces it, and where the design says so.
 
 6. Documents.
-   - en/docs/guides/0-set-up-a-client.md: make <private root>/uc/<client>/ with mode 0700, the inventory with uc-controller's scripts/new-inventory at <private root>/uc/<client>/uc-inventory, logs/rejected/, intake/defaults.yml without hashes, and the batch with scripts/new-batch and uc-controller's batch-secrets recipe, using example-org throughout, and saying the lab's client is named the same way. Say how to move an existing node definition from ~/.secrets/uc-raw/ into intake/ without its hashes, and how to retire ~/.secrets/uc-raw/ once nothing uses it.
+   - en/docs/guides/0-set-up-a-client.md: make <private root>/uc/<client>/ with mode 0700, the inventory with uc-controller's scripts/new-inventory at <private root>/uc/<client>/uc-inventory, logs/rejected/, intake/defaults.yml without hashes, and the batch with scripts/new-batch and uc-controller's batch-secrets recipe, using example-org throughout, and saying the lab's client is named the same way. Say how to move an existing node definition from ~/.secrets/uc-raw/ into intake/ without its hashes, and its hashes into a batch under ~/.secrets/uc/build/batches/. Say how to retire ~/.secrets/uc-raw/ and the older ~/.secrets/uc-raw-node/ once nothing uses them, and that anything either held that was ever in a public repository's history is rotated with a new batch, not moved. After the move, ~/.secrets/uc/ is the only project directory in ~/.secrets/, with build/ for uc-node and fleet/ for uc-controller.
    - en/docs/guides/4-hand-over-to-the-fleet.md: what connected securely means, from the lifecycle overview; where the confirmation and the candidate are; comparing the fingerprint at the console; reviewing and committing the candidate; admitting it with uc-controller's 05_admit.yml as it reads candidates today, by turning the candidate into admit_candidates, and that this will change when admission reads candidates/; and what a rejection looks like and what to do with it.
    - Revise guides 1 to 3 for intake/, scripts/build and the batch. Rename 1-setup-the-defaults-for-new-nodes.md only if its subject changes, and fix every link if it does.
    - README: the layout table, node definitions, the field table, secrets, run it and guides. ROADMAP: remove what this phase did, and add reading out-of-band fingerprints on the ssh platform from the provider's API where one exists. CHANGELOG: an Unreleased section for 0.3.0, saying node definitions must be moved.
@@ -131,4 +131,5 @@ Ground rules for the whole phase:
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.1 | 2026-11-27 | Guide 0 also retires ~/.secrets/uc-raw-node/, says that secrets once in a public history are rotated rather than moved, and names ~/.secrets/uc/build/ and fleet/ as the only project directories afterwards |
 | 0.1.0 | 2026-11-27 | First version |

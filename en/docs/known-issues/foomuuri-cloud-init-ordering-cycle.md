@@ -1,7 +1,7 @@
 ---
 title: Foomuuri and cloud-init Ordering Cycle
 description: On Debian 13, Foomuuri and cloud-init 25 form a systemd ordering cycle, so systemd skips a unit at boot and the node may never finish booting. What it looks like, how to confirm it, and what uc-node does about it.
-version: 0.1.0
+version: 0.1.1
 status: provisional
 date: 2026-11-24
 language: en-CA
@@ -63,7 +63,7 @@ In an Incus container, systemd's early boot messages never reach the journal, si
 - On every platform, the boot wait stops after `boot_timeout` seconds, 300 by default, and shows `systemctl list-jobs` and any ordering cycle lines, instead of hanging.
 - After the reboot, the build fails if `journalctl -b`, filtered on `SYSLOG_IDENTIFIER=systemd`, holds an ordering cycle, and on Incus also if the console log does.
 
-A node that is already stuck in `starting` needs cloud-init disabled by hand and a reboot, as [Build a Node on an SSH Host](../guides/3-build-a-node-on-an-ssh-host.md#the-node-never-finished-booting) shows.
+A node that is already stuck in `starting` needs cloud-init disabled by hand and a reboot, as [Build a Node on an SSH Host](../guides/3-build-a-node-on-an-ssh-host.md#the-node-has-not-finished-booting) shows.
 
 ## Upstream
 
@@ -73,4 +73,5 @@ The cycle is recorded for the role in [Foomuuri and cloud-init ordering cycle](h
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.1 | 2026-11-27 | The link to the fix for a node stuck in `starting` points to the ssh guide's The node has not finished booting, since the section it named was removed |
 | 0.1.0 | 2026-11-24 | First version |

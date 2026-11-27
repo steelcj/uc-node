@@ -390,7 +390,13 @@ exit
 raw.example.org has not finished booting within 300 seconds, so the build stops.
 ```
 
-The task above it shows `systemctl is-system-running`, the jobs systemd is waiting for, and any ordering cycle. If the jobs are cloud-init's and there is a cycle, see [The node never finished booting](#the-node-never-finished-booting). Otherwise, look at the units it names with `sudo systemctl status <unit>` on the node.
+The task above it shows `systemctl is-system-running`, the jobs systemd is waiting for, and any ordering cycle. If the jobs are cloud-init's and there is a cycle, the node is stuck in `starting`, as [Foomuuri and cloud-init Ordering Cycle](../known-issues/foomuuri-cloud-init-ordering-cycle.md) describes. Disable cloud-init by hand and reboot, then run the build again:
+
+```sh
+ssh -t initial@203.0.113.10 'sudo touch /etc/cloud/cloud-init.disabled && sudo systemctl reboot'
+```
+
+If SSH does not answer, run `touch /etc/cloud/cloud-init.disabled` and `systemctl reboot` as root at the provider's console. Otherwise, look at the units the task names with `sudo systemctl status <unit>` on the node.
 
 ### systemd found an ordering cycle
 
@@ -404,7 +410,7 @@ The node booted, but systemd skipped a unit to break a cycle, and the task above
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
-| 0.3.1 | 2026-11-27 | The remaining `-p 2222` examples removed, since SSH stays on 22, with the note on a manual `ssh` to another port |
+| 0.3.1 | 2026-11-27 | The remaining `-p 2222` examples removed, since SSH stays on 22, with the note on a manual `ssh` to another port. The fix for a node stuck in `starting`, which was in the removed section on earlier versions, moved to The node has not finished booting |
 | 0.3.0 | 2026-11-27 | Preparing an existing node and rebuilding a node made by an earlier version removed, with the other text on moving from uc-node 0.2.0 or uc-raw-node: nothing runs 0.2.0. Batch names in commands are `raw-YYYY-MM-DD-NN`, since `raw-1970-01-01-01` is reserved for documents and tests |
 | 0.2.0 | 2026-11-27 | Node definitions in the client inventory's `intake/`, built with `scripts/build`, with the hashes in a build batch: the password check reads the batch without showing the hash, a lost password means a new batch, and an old node definition is moved by guide 0. The confirmation and the candidate added to what the build does and checks, a second build changes three things, and troubleshooting for a hash in the node definition, the client inventory, `uc_secret` and the checker |
 | 0.1.3 | 2026-11-24 | Explained that `--ask-become-pass` wants the initial user's password, not the provider's root password, showed how to check it against `initial_password_hash` before the first build, and how to recover from Incorrect sudo password |

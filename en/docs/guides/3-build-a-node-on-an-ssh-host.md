@@ -1,7 +1,7 @@
 ---
 title: Build a Node on an SSH Host
 description: How to build a raw node on a Debian 13 host reached over SSH, such as a VPS, from a fresh install, how to check it, build it again, and what to do when something goes wrong.
-version: 0.3.0
+version: 0.3.1
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -125,9 +125,7 @@ cat /tmp/raw-example-org.key >> ~/.ssh/known_hosts
 rm /tmp/raw-example-org.key
 ```
 
-uc-node looks the host key up under the bare address, whatever the port, so one line covers port 22 and `ssh_port`.
-
-A manual `ssh -p 2222` looks the key up under `[203.0.113.10]:2222` instead, so it asks about the key once. Check the fingerprint it shows against the one above.
+uc-node looks the host key up under the bare address, which is how ssh records a key on port 22, so the one line serves both the build and a manual `ssh`.
 
 Never turn host key checking off to save this step, with `StrictHostKeyChecking=no`, `accept-new` or `ANSIBLE_HOST_KEY_CHECKING=False`. The build refuses to run with Ansible's host key checking off.
 
@@ -179,7 +177,7 @@ The counts vary with the host. What matters is `failed=0`. Compare the fingerpri
 `sudo` over `ssh` needs a terminal, so use `ssh -t`, and give the initial user's password when `sudo` asks:
 
 ```sh
-ssh -t -p 2222 initial@203.0.113.10 '
+ssh -t initial@203.0.113.10 '
   hostname; hostname -f
   systemctl is-system-running
   cat /etc/uc-raw-node/owner
@@ -191,8 +189,6 @@ ssh -t -p 2222 initial@203.0.113.10 '
   ls -l /var/lib/raw-node/confirmation.yml
 '
 ```
-
-Leave out `-p 2222` if `ssh_port` is 22.
 
 | Check | Expected |
 | :-- | :-- |
@@ -212,9 +208,9 @@ Then the checks that matter most on a remote host:
 
 | Check | How | Expected |
 | :-- | :-- | :-- |
-| Root cannot log in | `ssh -p 2222 root@203.0.113.10 true` | `Permission denied` |
-| Passwords are refused | `ssh -o PubkeyAuthentication=no -p 2222 initial@203.0.113.10 true` | `Permission denied` |
-| Root's password is set | ssh -t -p 2222 initial@203.0.113.10 'su - root -c "id -un"' | `root` |
+| Root cannot log in | `ssh root@203.0.113.10 true` | `Permission denied` |
+| Passwords are refused | `ssh -o PubkeyAuthentication=no initial@203.0.113.10 true` | `Permission denied` |
+| Root's password is set | `ssh -t initial@203.0.113.10 'su - root -c "id -un"'` | `root` |
 | The console works | Log in as root through the provider's web console |  |
 
 Each refused login counts towards PerSourcePenalties, so run these once.
@@ -379,7 +375,7 @@ The failed build is recorded as a rejection, and any earlier candidate of the no
 A command run through `ssh` gets no terminal, so `sudo` cannot ask for the password. Use `ssh -t`. If it still fails, a `RequestTTY no` line in `~/.ssh/config`, or a shell that is not a real terminal, such as an editor's or an assistant's built-in shell, may be the cause. Log in, and run the commands on the node:
 
 ```sh
-ssh -p 2222 initial@203.0.113.10
+ssh initial@203.0.113.10
 sudo sshd -T | grep -E '^(port|permitrootlogin|passwordauthentication) '
 exit
 ```
@@ -408,6 +404,7 @@ The node booted, but systemd skipped a unit to break a cycle, and the task above
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.3.1 | 2026-11-27 | The remaining `-p 2222` examples removed, since SSH stays on 22, with the note on a manual `ssh` to another port |
 | 0.3.0 | 2026-11-27 | Preparing an existing node and rebuilding a node made by an earlier version removed, with the other text on moving from uc-node 0.2.0 or uc-raw-node: nothing runs 0.2.0. Batch names in commands are `raw-YYYY-MM-DD-NN`, since `raw-1970-01-01-01` is reserved for documents and tests |
 | 0.2.0 | 2026-11-27 | Node definitions in the client inventory's `intake/`, built with `scripts/build`, with the hashes in a build batch: the password check reads the batch without showing the hash, a lost password means a new batch, and an old node definition is moved by guide 0. The confirmation and the candidate added to what the build does and checks, a second build changes three things, and troubleshooting for a hash in the node definition, the client inventory, `uc_secret` and the checker |
 | 0.1.3 | 2026-11-24 | Explained that `--ask-become-pass` wants the initial user's password, not the provider's root password, showed how to check it against `initial_password_hash` before the first build, and how to recover from Incorrect sudo password |

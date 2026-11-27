@@ -51,6 +51,10 @@ Decide whether the A and AAAA records for a node's fully qualified domain name a
 
 An Incus container has one interface. A VPS may have a public interface, a private network and IPv6. Check that Foomuuri's zones match the interfaces such a host really has, and that its rules cover IPv6.
 
+### Read out-of-band fingerprints on the ssh platform from the provider's API
+
+On Incus, the build reads the node's host key fingerprint with `incus exec`, which does not go through SSH. On the ssh platform it reads it over SSH, so the fingerprint is only as good as the host key the operator checked at the provider's console before the first build, and the operator compares it at the console again before admission. Where a provider's API reports a server's host keys, or its console output, read the fingerprint from there, compare it with the one the confirmation lists, and fail the build when they differ, so the out-of-band check no longer depends on a person at the console.
+
 ### Order hosts through a provider's API
 
 The ssh platform adopts a host ordered by hand. A provider whose API passes the Universal Cake metrics could have a platform of its own that orders the host, for example with the `hetzner.hcloud` collection, and then reuses the ssh platform's plays.

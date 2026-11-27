@@ -1,9 +1,9 @@
 ---
 title: Add a New Platform to the Raw Node Controller
 description: How to teach uc-node to build raw nodes on a new platform, with the ssh platform as the worked example.
-version: 0.2.1
+version: 0.3.0
 status: provisional
-date: 2026-11-24
+date: 2026-11-27
 language: en-CA
 ---
 
@@ -13,7 +13,7 @@ uc-node builds a node that meets the raw node contract. It builds on two platfor
 
 ## Who this is for
 
-You maintain uc-node and want it to build raw nodes somewhere else: another hypervisor, a provider's API, or bare metal. You know `build.yml`, node definitions in `~/.secrets/uc-raw/`, and the guides [Build and Check a Raw Node](2-build-and-check-a-raw-node.md) and [Build a Node on an SSH Host](3-build-a-node-on-an-ssh-host.md).
+You maintain uc-node and want it to build raw nodes somewhere else: another hypervisor, a provider's API, or bare metal. You know `build.yml`, node definitions in a client inventory's `intake/`, and the guides [Build and Check a Raw Node](2-build-and-check-a-raw-node.md) and [Build a Node on an SSH Host](3-build-a-node-on-an-ssh-host.md).
 
 ## What stays the same
 
@@ -26,6 +26,9 @@ Most of the controller does not care where the node runs. These plays are shared
 | Bootstrap | `robertdebock.bootstrap` |
 | Configure to contract | `robertdebock.hostname`, `robertdebock.users`, `steelcj.foomuuri`, `robertdebock.openssh`, and the `/etc/hosts` line for `hostname -f` |
 | Reboot | `ansible.builtin.reboot`, which fails if the boot ID did not change, then the boot wait again and the ordering cycle check |
+| Confirm | `tasks/confirmation.yml`: the confirmation measured on the node, written, read back through the platform's connection and checked |
+| Hand over | The candidate in the client inventory's `candidates/`, written from the controller host, and the fingerprint printed |
+| Reject | `plugins/callback/uc_reject.py`, for any failure once the node is in `raw_node` |
 
 The contract is the same on every platform. A platform only changes how the node comes to exist, how the controller reaches it, and what must be removed before the contract can hold.
 
@@ -41,7 +44,8 @@ A platform is a small set of answers. Write them down before writing any YAML.
 | Wait | How does the controller know the node has booted? | The shared boot wait | The shared boot wait |
 | Prepare | What does the platform put on the node that would break the contract? | Nothing, the image is clean | sshd drop-ins, cloud-init, root's keys |
 | Recover | How do you get in if the network configuration goes wrong? | `incus exec`, which ignores the network | The provider's web console, with root's password |
-| Confirm | Which addresses does the orchestration controller use? | The instance's addresses on the Incus network | `node_address` |
+| Confirm | Which address goes into the candidate, for admission to connect to? | The address on the node's IPv4 default route, from the confirmation | `node_address` |
+| Fingerprint | Does the connection that reads the confirmation verify the node by a channel other than the SSH connection admission will use? | Yes: `incus exec` does not go through SSH | Only as well as the host key checked at the console before the first build, which the connection is pinned to |
 
 Incus answers the connect and recover questions so easily that they are invisible. On most other platforms they are the hard part.
 
@@ -234,9 +238,9 @@ An Incus container has one interface. A VPS may have a public interface, a priva
 
 Decide whether the A and AAAA records for the node's fully qualified domain name are part of the contract or a step for the orchestration controller. Either answer works. Write it down.
 
-#### confirmation.yml
+#### The confirmation and the candidate
 
-The orchestration controller needs the node's addresses. For the ssh platform, that is `node_address`, and any IPv6 address the host has. uc-node does not write `confirmation.yml` yet.
+`tasks/confirmation.yml` measures the confirmation on the node with the platform's connection, so it needs nothing from a new platform beyond a working connection with root, or become. The handover play in `build.yml` chooses the candidate's address: `node_address` on the ssh platform, and the address on the IPv4 default route otherwise. A platform whose admission address is neither, such as one behind NAT, adds its own rule there. Its guide says how the operator reads the ED25519 fingerprint at the node's console, since the build prints that command at the end.
 
 ## Check the new platform
 
@@ -244,7 +248,8 @@ Run the checks from the platform's guide, then these, which matter most for a re
 
 | Check | How | Expected |
 | :-- | :-- | :-- |
-| A second build is quiet | Build again, without `uc_raw_node_adopt` | `changed=1` for the node, the reboot, and nothing else |
+| A second build is quiet | Build again, without `uc_raw_node_adopt` | `changed=3` for the node: the reboot, the confirmation and the candidate, and nothing else |
+| The confirmation passes | Build with `UC_CONTROLLER` set | The confirmation passes `check_raw_confirmation.py`, and the candidate is in `candidates/` |
 | A node without the marker is refused | Build a host without the marker, without `uc_raw_node_adopt` | Stops before any change, with the ownership message |
 | An unknown host key is refused | Build with the host key missing from known_hosts | Stops before any login, with the host key message |
 | Root cannot log in | `ssh root@<address>` | Refused |
@@ -270,6 +275,7 @@ Run the checks from the platform's guide, then these, which matter most for a re
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.3.0 | 2026-11-27 | Node definitions in a client inventory's `intake/`. The confirmation, the handover and rejections added to what stays the same, the candidate's address and the out-of-band fingerprint to what a platform must provide, and a second build changes three things |
 | 0.2.1 | 2026-11-24 | Linked the known issues, and added `node_connection_variables` to the create play's contract |
 | 0.2.0 | 2026-11-24 | Brought in line with what was built, still provisional: `ssh` instead of `vps`, `platforms.yml`, the `when` blocks and platform groups, group_vars under the inventory, `ansible.builtin.reboot` and the boot checks, `IdentitiesOnly`, the host key, root's keys, PerSourcePenalties, and the cloud-init ordering cycle |
 | 0.1.0 | 2026-11-23 | First draft, provisional: the platform model, and a VPS adopted over SSH as the worked example |

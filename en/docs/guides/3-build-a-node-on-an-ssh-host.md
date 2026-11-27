@@ -1,9 +1,9 @@
 ---
 title: Build a Node on an SSH Host
 description: How to build a raw node on a Debian 13 host reached over SSH, such as a VPS, whether the host is a fresh install or an existing node, how to check it, and what to do when something goes wrong.
-version: 0.1.3
+version: 0.2.0
 status: provisional
-date: 2026-11-24
+date: 2026-11-27
 language: en-CA
 ---
 
@@ -18,9 +18,9 @@ This guide builds a raw node on the `ssh` platform: a Debian 13 host that uc-nod
 
 Both paths end in the same adoption build, the same checks, and the same later builds.
 
-It assumes the defaults from [Set Up the Defaults for New Nodes](1-setup-the-defaults-for-new-nodes.md) are in place, and the requirements in the [README](../../../README.md#requirements) are installed. Run every command from the repository directory, so Ansible reads `ansible.cfg` and the inventory.
+It assumes the client is set up as [Set Up a Client](0-set-up-a-client.md) describes, with a build batch and the defaults from [Set Up the Defaults for New Nodes](1-setup-the-defaults-for-new-nodes.md), and that the requirements in the [README](../../../README.md#requirements) are installed. Run every command from the repository directory.
 
-The examples use the node `raw.example.org` at `203.0.113.10`, with the initial user `initial`. Use your own values.
+The examples use the client `example-org`, whose inventory is `~/.private/uc/example-org/uc-inventory`, the node `raw.example.org` at `203.0.113.10`, the initial user `initial`, the batch `raw-1970-01-01-01` and the key `~/.ssh/example-org-raw-initial-id_ed25519`. Use your own values.
 
 ## What the build does on an SSH host
 
@@ -34,6 +34,8 @@ The examples use the node `raw.example.org` at `203.0.113.10`, with the initial 
 | Configure | Hostname, root's password, the initial user, the Foomuuri firewall and key-only SSH |
 | Switch | Moves to the initial user on `ssh_port`, with `sudo`, and empties root's `authorized_keys` |
 | Reboot | Reboots, checks that the boot ID changed, waits for the node, and fails if systemd found an ordering cycle |
+| Confirm | Measures the confirmation on the node, writes `/var/lib/raw-node/confirmation.yml`, reads it back over the same pinned connection, and checks it with uc-controller's checker when `UC_CONTROLLER` is set |
+| Hand over | Writes the candidate, `candidates/raw.example.org.yml`, in the client inventory, and prints the ED25519 fingerprint to compare at the provider's console |
 
 ### Why cloud-init is disabled
 
@@ -66,12 +68,12 @@ Log in as root through the provider's web console once, before the first build. 
 ### Write the node definition
 
 ```sh
-scripts/new-node
+scripts/new-node ~/.private/uc/example-org/uc-inventory
 ```
 
-Answer `ssh` for the platform, then the node's address. Keep `ssh_port: 22` for the first build: moving the port in the same build as first contact is refused. If you give `ssh_sources`, the script asks you to confirm that the list includes your controller's own public address, since the firewall only lets those addresses reach SSH.
+Answer `ssh` for the platform, then the node's address and the batch. Keep `ssh_port: 22` for the first build: moving the port in the same build as first contact is refused. If you give `ssh_sources`, the script asks you to confirm that the list includes your controller's own public address, since the firewall only lets those addresses reach SSH.
 
-The script writes `~/.secrets/uc-raw/raw.example.org.yml`, then prints the entry to add to `~/.ssh/config`, described next.
+The script writes `~/.private/uc/example-org/uc-inventory/intake/raw.example.org.yml`, then prints the entry to add to `~/.ssh/config`, described next.
 
 ## Prepare an existing node
 
@@ -85,42 +87,34 @@ Check the initial user's login, its `sudo` password, and the settings the build 
 ssh -t -p 2222 initial@203.0.113.10 'sudo passwd -S root; sudo sshd -T | grep -E "^(port|permitrootlogin|passwordauthentication) "'
 ```
 
-Expected: `root P ...`, so root still has a password for the console, `permitrootlogin no`, `passwordauthentication no`, and the port SSH listens on. That port goes into the node definition as `ssh_port`. The password you give `sudo` here is the one the build asks for with `--ask-become-pass`.
+Expected: `root P ...`, so root still has a password for the console, `permitrootlogin no`, `passwordauthentication no`, and the port SSH listens on. That port goes into the node definition as `ssh_port`. The password you give `sudo` here is the one the build asks for with `--ask-become-pass`, and must be the batch password of the batch the node definition names.
 
 If `sudo` still says a terminal is required, see [sudo: a terminal is required to read the password](#sudo-a-terminal-is-required-to-read-the-password).
 
 ### Update the node definition
 
-A node definition from uc-raw-node names the client domain `hostname`, and the build refuses it. Update it to the current fields, and keep the secret values as they are:
+A node definition from uc-raw-node or uc-node 0.2.0 lives under `~/.secrets/`, holds the two password hashes, and may name the client domain `hostname`. The build refuses all three. First put its hashes in a batch, or rotate them, as [Move node definitions from ~/.secrets/uc-raw/](0-set-up-a-client.md#move-node-definitions-from-secretsuc-raw) shows. Then write it into `intake/` with the current fields:
 
 ```yaml
 ---
-platform: ssh
-node_address: 203.0.113.10
 client_domain: example.org
 node_label: raw
-root_password_hash: <unchanged>
+platform: ssh
+node_address: 203.0.113.10
 initial_username: initial
-initial_password_hash: <unchanged>
 ssh_public_key: <unchanged>
 ssh_port: 2222
 ssh_sources: <unchanged>
+raw_node_batch: raw-1970-01-01-01
 ```
 
 - `hostname` becomes `client_domain`.
-- `platform`, `node_address` and `node_label` are added. The label decides the node's names: `raw` gives the hostname `raw` and the fully qualified domain name `raw.example.org`.
+- `platform`, `node_address` and `node_label` are added. The label decides the node's names: `raw` gives the hostname `raw` and the fully qualified domain name `raw.example.org`, and the file is `intake/raw.example.org.yml`.
+- `root_password_hash` and `initial_password_hash` are removed, and `raw_node_batch` names the batch that holds them.
 - `ssh_port` is the port you found above.
 - If `ssh_sources` is not empty, it must include your controller's current public address.
 
-Node definitions are now named after the node. Keep a copy of the old file until the build works, then delete it, since it holds the same password hashes:
-
-```sh
-cd ~/.secrets/uc-raw
-cp -p example.org.yml example.org.yml.old
-mv example.org.yml raw.example.org.yml
-chmod 600 raw.example.org.yml
-cd -
-```
+Keep the old file until the build works, then retire it as [Set Up a Client](0-set-up-a-client.md#retire-secretsuc-raw-and-secretsuc-raw-node) shows.
 
 ## Add the node to ~/.ssh/config
 
@@ -129,7 +123,7 @@ Every connection the build makes uses `IdentitiesOnly=yes`, so ssh offers only t
 ```text
 # uc-node: raw.example.org
 Host 203.0.113.10
-    IdentityFile ~/.ssh/example-raw-initial-id_ed25519
+    IdentityFile ~/.ssh/example-org-raw-initial-id_ed25519
     IdentitiesOnly yes
     # Optional, only for manual ssh/scp; the build passes the user itself
     User initial
@@ -194,36 +188,43 @@ Never turn host key checking off to save this step, with `StrictHostKeyChecking=
 The first build of a host adopts it: it writes the ownership marker `/etc/uc-raw-node/owner`. Give `-e uc_raw_node_adopt=true` only for the host you ordered, or the existing node you mean to rebuild. A wrong address in a node definition then fails safely, instead of reconfiguring someone else's server.
 
 ```sh
-ansible-playbook build.yml -e @$HOME/.secrets/uc-raw/raw.example.org.yml -e uc_raw_node_adopt=true --ask-become-pass
+UC_CONTROLLER=~/uc-controller scripts/build ~/.private/uc/example-org/uc-inventory raw.example.org -e uc_raw_node_adopt=true --ask-become-pass
 ```
 
-`--ask-become-pass` asks for the initial user's password, the one whose hash is `initial_password_hash`. Every ssh build needs it, the first included: after the configure play, the build switches to the initial user, and the reboot runs with `sudo`.
+`scripts/build` passes every argument after the node's name to `ansible-playbook`. `UC_CONTROLLER` names the uc-controller checkout, whose checker the build runs on the confirmation. Without it, the build says that the confirmation was not checked.
+
+`--ask-become-pass` asks for the initial user's password: the batch password of the batch the node definition names, whose hash is `initial_password_hash` in `~/.secrets/uc/build/batches/raw-1970-01-01-01.yml`. Every ssh build needs it, the first included: after the configure play, the build switches to the initial user, and the reboot runs with `sudo`.
 
 ### Give the initial user's password, not the provider's
 
-Ansible's prompt only says `BECOME password:`, and on a fresh host the only password you have is the root password the provider gave you. Do not give that one. The first build logs in as root with your key, and root needs no `sudo`, so the build does not use the password you typed until it switches to the initial user. By then the configure play has set both root's and the initial user's passwords from the node definition, and root can no longer log in over SSH. A wrong password is only found at that point, and the build fails on its first `sudo` task with [Incorrect sudo password](#incorrect-sudo-password).
+Ansible's prompt only says `BECOME password:`, and on a fresh host the only password you have is the root password the provider gave you. Do not give that one. The first build logs in as root with your key, and root needs no `sudo`, so the build does not use the password you typed until it switches to the initial user. By then the configure play has set both root's and the initial user's passwords from the batch, and root can no longer log in over SSH. A wrong password is only found at that point, and the build fails on its first `sudo` task with [Incorrect sudo password](#incorrect-sudo-password).
 
-The provider's root password is not used anywhere in the build. After the first build, root's password is the one whose hash is `root_password_hash`.
+The provider's root password is not used anywhere in the build. After the first build, root's password is the batch's root password, whose hash is `root_password_hash`.
 
 ### Check the password before the first build
 
-The build does not compare the password you type with `initial_password_hash`, so check it by hand before an adoption build. Take the salt from the hash, the part between the second and third `$`, and hash the password you mean to type with it:
+The build does not compare the password you type with `initial_password_hash`, so check it by hand before an adoption build. This hashes the password you type with the salt of the batch's hash, and says whether the two match, without showing either. In bash:
 
 ```sh
-grep initial_password_hash ~/.secrets/uc-raw/raw.example.org.yml
-openssl passwd -6 -salt '<salt>'
+batch=raw-1970-01-01-01
+hash=$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["initial_password_hash"])' \
+  ~/.secrets/uc/build/batches/"$batch".yml)
+IFS= read -rs -p 'Batch password: ' pw; echo
+if [ "$(printf '%s\n' "$pw" | openssl passwd -6 -salt "$(printf '%s' "$hash" | cut -d'$' -f3)" -stdin)" = "$hash" ]
+then echo 'It matches.'; else echo 'It does not match.'; fi
+unset pw hash
 ```
 
-`openssl` asks for the password and prints a hash. If it matches `initial_password_hash`, that is the password to give `--ask-become-pass`. If it does not, find the right password, or make a new hash with `openssl passwd -6` and put it in the node definition, before you build. The same check works for `root_password_hash`.
+If it matches, that is the password to give `--ask-become-pass`. If it does not, find the right password, or make a new batch with `scripts/new-batch` and name it in the node definition, before you build. The same check works for `root_password_hash`.
 
-Expected, at the end:
+Expected, at the end, the node's address and its ED25519 fingerprint, and then:
 
 ```text
-localhost                  : ok=14   changed=0    unreachable=0    failed=0    skipped=7    rescued=0    ignored=0
-raw.example.org            : ok=139  changed=14   unreachable=0    failed=0    skipped=56   rescued=0    ignored=0
+localhost                  : ok=<n>  changed=0    unreachable=0    failed=0    skipped=<n>  rescued=0    ignored=0
+raw.example.org            : ok=<n>  changed=<n>  unreachable=0    failed=0    skipped=<n>  rescued=0    ignored=0
 ```
 
-The counts vary with the host. What matters is `failed=0`. The reboot can be very fast, but it is real: the build fails if the boot ID did not change. See [robertdebock.reboot Reports Changed Without Rebooting](../known-issues/robertdebock-reboot-reports-changed-without-rebooting.md) for why that check matters.
+The counts vary with the host. What matters is `failed=0`. Compare the fingerprint with the one the provider's console shows before admission, as [Hand Over to the Fleet](4-hand-over-to-the-fleet.md#compare-the-fingerprint-at-the-console) describes. The reboot can be very fast, but it is real: the build fails if the boot ID did not change. See [robertdebock.reboot Reports Changed Without Rebooting](../known-issues/robertdebock-reboot-reports-changed-without-rebooting.md) for why that check matters.
 
 ## Check the node
 
@@ -239,6 +240,7 @@ ssh -t -p 2222 initial@203.0.113.10 '
   sudo sshd -T | grep -E "^(port|permitrootlogin|passwordauthentication) "
   systemctl is-active foomuuri
   sudo journalctl -b SYSLOG_IDENTIFIER=systemd | grep -ci "ordering cycle"
+  ls -l /var/lib/raw-node/confirmation.yml
 '
 ```
 
@@ -254,6 +256,7 @@ Leave out `-p 2222` if `ssh_port` is 22.
 | `sshd -T` | `port` is `ssh_port`, `permitrootlogin no`, `passwordauthentication no` |
 | Foomuuri | `active` |
 | Ordering cycles from systemd | `0` |
+| The confirmation | `-rw-r--r-- 1 root root`, readable by the initial user |
 
 The journal check needs `sudo`. Without it, `journalctl` shows the initial user only its own messages, hides systemd's, and prints `0` whatever happened. It is filtered on `SYSLOG_IDENTIFIER=systemd`, because the build's own check logs a command line that holds the search text. A real cycle is a line from systemd that starts with `Found ordering cycle`.
 
@@ -273,10 +276,10 @@ Each refused login counts towards PerSourcePenalties, so run these once.
 Later builds find the contract connection without being told, and do not need `uc_raw_node_adopt`:
 
 ```sh
-ansible-playbook build.yml -e @$HOME/.secrets/uc-raw/raw.example.org.yml --ask-become-pass
+UC_CONTROLLER=~/uc-controller scripts/build ~/.private/uc/example-org/uc-inventory raw.example.org --ask-become-pass
 ```
 
-Expected: `changed=0` for localhost and `changed=1` for the node, which is the reboot, with `failed=0`. The build reboots on every run, on purpose.
+Expected: `changed=0` for localhost and `changed=3` for the node, with `failed=0`: the reboot, the confirmation, whose timestamp changes, and the candidate, whose build time changes. The build reboots on every run, on purpose.
 
 ## Rebuild a node made by an earlier version
 
@@ -314,9 +317,41 @@ If `ssh_sources` leaves out your address, or SSH moved to a port the firewall do
 
 ### After losing the initial user's password
 
-Log in as root through the console, set a new password with `passwd initial`, and put its hash in the node definition with `openssl passwd -6`.
+Make a new batch with `scripts/new-batch`, with a new batch password, and write that password to uc-controller's file for the batch. Log in as root through the console, set the new password with `passwd initial`, name the new batch in the node definition's `raw_node_batch`, and build again. Retire the old batch once no node uses it.
 
 ## Troubleshooting by error message
+
+### The node definition holds a password hash
+
+```text
+The node definition holds root_password_hash or initial_password_hash, which are no longer used. Make a batch with scripts/new-batch, ...
+```
+
+The node definition was written for uc-node 0.2.0 or earlier. Move its hashes into a batch, or rotate them, and remove them from the node definition, as [Move node definitions from ~/.secrets/uc-raw/](0-set-up-a-client.md#move-node-definitions-from-secretsuc-raw) shows. Nothing was changed on the node.
+
+### uc_client_inventory must be the absolute path of a client inventory
+
+The build was run with `ansible-playbook` directly, without `-e uc_client_inventory=...`, or the path has no `intake/`. Build with `scripts/build <client inventory> <fqdn>`, which passes it.
+
+### The client inventory has no node definition for the node in intake/
+
+The node definition passed with `-e @` is not the one in the client inventory's `intake/`, or the one there names another node. Build with `scripts/build`, which takes the node definition from `intake/`.
+
+### uc_secret: there is no file, or a mode is wrong
+
+```text
+uc_secret: batches/raw-1970-01-01-01: there is no file /home/operator/.secrets/uc/build/batches/raw-1970-01-01-01.yml. Create it, as en/docs/guides/0-set-up-a-client.md describes.
+```
+
+The batch the node definition names has no file, or its file or a directory above it is not private. Make the batch with `scripts/new-batch`, or fix the mode the message names. The message never includes a value. Nothing was created or changed.
+
+### The confirmation does not meet the contract
+
+```text
+check_raw_confirmation.py found that the confirmation on raw.example.org does not meet the contract: fail. The task above shows its findings.
+```
+
+The node was built, but uc-controller's checker found that the confirmation breaks a clause. The task above lists each finding with its clause. The build is rejected: see [When a node is rejected](4-hand-over-to-the-fleet.md#when-a-node-is-rejected).
 
 ### The node definition sets hostname, which is no longer used
 
@@ -403,9 +438,11 @@ The build was run without `--ask-become-pass`. Every ssh build needs it, the fir
 
 ### Incorrect sudo password
 
-The password given to `--ask-become-pass` is not the initial user's. It is the password whose hash is `initial_password_hash` in the node definition, not root's, and not the root password the provider gave you. See [Give the initial user's password, not the provider's](#give-the-initial-users-password-not-the-providers).
+The password given to `--ask-become-pass` is not the initial user's. It is the batch password, whose hash is `initial_password_hash` in the batch the node definition names, not root's, and not the root password the provider gave you. See [Give the initial user's password, not the provider's](#give-the-initial-users-password-not-the-providers).
 
-On a first build this error comes from the task `Look for root's authorized_keys`, after the configure play has run. The node is then part way to contract: root cannot log in over SSH, the initial user logs in with the key on `ssh_port`, and the ownership marker is written. Check the password as [Check the password before the first build](#check-the-password-before-the-first-build) shows, then run the build again with the right one. It finds the contract connection, and `uc_raw_node_adopt` is no longer needed. If the hash in the node definition is wrong and you do not know the password behind it, see [After losing the initial user's password](#after-losing-the-initial-users-password).
+On a first build this error comes from the task `Look for root's authorized_keys`, after the configure play has run. The node is then part way to contract: root cannot log in over SSH, the initial user logs in with the key on `ssh_port`, and the ownership marker is written. Check the password as [Check the password before the first build](#check-the-password-before-the-first-build) shows, then run the build again with the right one. It finds the contract connection, and `uc_raw_node_adopt` is no longer needed. If the hash in the batch is wrong and you do not know the password behind it, see [After losing the initial user's password](#after-losing-the-initial-users-password).
+
+The failed build is recorded as a rejection, and any earlier candidate of the node is removed. A later build that passes writes the candidate again.
 
 ### sudo: a terminal is required to read the password
 
@@ -441,6 +478,7 @@ The node booted, but systemd skipped a unit to break a cycle, and the task above
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.2.0 | 2026-11-27 | Node definitions in the client inventory's `intake/`, built with `scripts/build`, with the hashes in a build batch: the password check reads the batch without showing the hash, a lost password means a new batch, and an old node definition is moved by guide 0. The confirmation and the candidate added to what the build does and checks, a second build changes three things, and troubleshooting for a hash in the node definition, the client inventory, `uc_secret` and the checker |
 | 0.1.3 | 2026-11-24 | Explained that `--ask-become-pass` wants the initial user's password, not the provider's root password, showed how to check it against `initial_password_hash` before the first build, and how to recover from Incorrect sudo password |
 | 0.1.2 | 2026-11-24 | updated root password test so VPS console is not required |
 | 0.1.1 | 2026-11-24 | Linked the known issues on the ordering cycle, the reboot role and PerSourcePenalties |

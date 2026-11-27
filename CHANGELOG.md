@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+To be released as 0.3.0. It breaks every existing node definition: node definitions must be moved from `~/.secrets/uc-raw/` into a client inventory's `intake/`, without their password hashes, which go into a build batch. [Set Up a Client](en/docs/guides/0-set-up-a-client.md) shows how.
+
+### Added
+
+- Build batches: `scripts/new-batch <batch>` writes `~/.secrets/uc/build/batches/<batch>.yml`, mode `0600`, with the hashes of the root password and the batch password, from passwords typed at the terminal and hashed by `openssl` on its standard input. The batch password itself goes to uc-controller, and uc-node never holds it.
+- `plugins/lookup/uc_secret.py`, a copy of uc-controller's lookup rooted at `~/.secrets/uc/build`, with the override `UC_NODE_SECRETS_DIR`. It is the only way the build reads a secret.
+- `scripts/build <client inventory> <fqdn>`, which runs `build.yml` with the node definition from `intake/` and `uc_client_inventory`.
+- The confirmation: after the reboot, the build measures every field of raw node contract 0.3.1 on the node, writes `/var/lib/raw-node/confirmation.yml` (RN-REP-01), reads it back through the platform, and checks it with uc-controller's `check_raw_confirmation.py` when `UC_CONTROLLER` is set, failing on anything but pass.
+- The candidate: the build writes `<client inventory>/candidates/<fqdn>.yml`, with the fields of the raw node handoff design, and prints the ED25519 fingerprint and the command to compare it at the console.
+- Rejections: `plugins/callback/uc_reject.py` writes one entry to the client log, `logs/rejected/` beside the client inventory, when the build cannot secure a node, and removes the node's candidate.
+- `tests/`, run with `python3 tests/run_tests.py`: the lookup, `new-batch`, `new-node`, `scripts/build`, the check play, the templates, and the rejection callback.
+- The guides Set Up a Client and Hand Over to the Fleet.
+
+### Changed
+
+- Node definitions live in the client inventory's `intake/`, mode `0644`, without secrets, and name their batch in the new required field `raw_node_batch`. `root_password_hash` and `initial_password_hash` are read from the batch, and the build refuses a node definition that still holds either.
+- The check play requires `uc_client_inventory`, refuses a node definition that is not in its `intake/`, checks `raw_node_batch`, and reads the batch once, so a missing or badly protected batch file stops the build before anything is created.
+- `scripts/new-node <client inventory>` reads `intake/defaults.yml`, refuses one that holds a hash, asks for the batch, and no longer asks for passwords.
+- A second build changes the reboot, the confirmation and the candidate.
+- The guides 1 to 3, the guide to adding a platform, and the README describe the client inventory, `scripts/build` and batches.
+
+### Removed
+
+- Every use of `~/.secrets/uc-raw/` from the code.
+
 ## [0.2.0] - 2026-11-24
 
 ### Added

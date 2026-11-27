@@ -1,3 +1,20 @@
 ---
+# inventory/group_vars/all/foomuuri.yml
+#
+# steelcj.foomuuri, called once with its defaults, writes one fragment,
+# /etc/foomuuri/10-base.conf, and removes every other .conf file there. It
+# accepts SSH on ssh_port from ssh_sources, DHCP and DHCPv6 replies and ping
+# (RN-FW-03), and lets everything out. It also removes ufw and firewalld and
+# masks nftables.service, so Foomuuri owns the only nftables table
+# (RN-FW-01, RN-FW-02).
+#
+# The fragment is a bootstrap rule: it lets the controller in, and nothing
+# more. uc-controller owns every fragment from admission on, and its
+# onboarding replaces this one, calling the same role with the same
+# fragment name, 10-base. See uc-contracts,
+# en/docs/design/raw-node-handoff-inventories-and-secrets-v0.1.1.md: the
+# Firewall row of "The line between the controllers", and "uc-controller
+# fleet inventory", where 10-base replaces uc-node's bootstrap rule at
+# onboarding. Keep the fragment's name, so onboarding leaves nothing behind.
 foomuuri_ssh_port: "{{ ssh_port }}"
 foomuuri_ssh_sources: "{{ ssh_sources }}"

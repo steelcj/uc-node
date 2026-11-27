@@ -1,0 +1,5 @@
+Matching Defaults entries for initial on dev:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin, use_pty
+
+User initial may run the following commands on dev:
+    (ALL : ALL) ALL

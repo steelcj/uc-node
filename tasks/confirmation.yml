@@ -52,12 +52,35 @@
   changed_when: false
   failed_when: uc_measured_account.rc not in [0, 2]
 
-- name: Read the initial user's groups
+# The contract's sudo field is whether the initial user can use sudo, so
+# sudo itself is asked, which sees a rule naming the user as well as one
+# for a group. The play runs as root, on the Incus connection or with
+# become on the ssh platform, as sudo -l -U requires. uc_sudo_rules, in
+# plugins/filter/uc_sudo.py, reads the answer: yes, no, or unknown.
+- name: List the initial user's sudo rules
   ansible.builtin.command:
-    argv: [id, -nG, "{{ initial_username }}"]
-  register: uc_measured_groups
+    argv: [sudo, -l, -U, "{{ initial_username }}"]
+  environment:
+    LC_ALL: C
+  register: uc_measured_sudo_list
   changed_when: false
+  failed_when: false
   when: uc_measured_account.rc == 0
+
+- name: Note whether the initial user can use sudo
+  ansible.builtin.set_fact:
+    uc_measured_sudo: >-
+      {{ uc_measured_sudo_list.stdout | uc_sudo_rules(uc_measured_sudo_list.rc, initial_username)
+         if uc_measured_account.rc == 0 else 'no' }}
+
+- name: Stop if sudo's answer cannot be read
+  ansible.builtin.assert:
+    that:
+      - uc_measured_sudo in ['yes', 'no']
+    fail_msg: >-
+      sudo -l -U {{ initial_username }} exited {{ uc_measured_sudo_list.rc }} and did not say whether
+      {{ initial_username }} may run sudo, so the confirmation's sudo field cannot be measured.
+    quiet: true
 
 - name: Find the sudoers files
   ansible.builtin.find:
@@ -223,7 +246,7 @@
       timestamp: "{{ uc_measured_time.stdout | trim }}"
       machine_id: "{{ uc_measured_machine_id.content | b64decode | trim }}"
       user: "{{ initial_username if uc_measured_account.rc == 0 else '' }}"
-      sudo: "{{ uc_measured_account.rc == 0 and (uc_measured_groups.stdout.split() | intersect(['sudo', 'wheel']) | length > 0) }}"
+      sudo: "{{ uc_measured_sudo == 'yes' }}"
       sudo_nopasswd: "{{ uc_measured_nopasswd.rc == 0 }}"
       ssh_port: "{{ uc_sshd_port | int }}"
       ssh_password_auth: "{{ uc_sshd_password != 'no' or uc_sshd_keyboard != 'no' }}"

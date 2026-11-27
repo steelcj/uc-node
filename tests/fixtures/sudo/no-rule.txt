@@ -1,0 +1,1 @@
+User initial is not allowed to run sudo on dev.

@@ -153,10 +153,10 @@ UC_CONTROLLER=~/uc-controller python3 tests/run_tests.py
 
 ## Guides
 
-- [Set Up a Client](en/docs/guides/0-set-up-a-client.md): the client's private folder, its inventory and log, the intake defaults and a build batch, and moving node definitions out of `~/.secrets/uc-raw/`.
+- [Set Up a Client](en/docs/guides/0-set-up-a-client.md): the client's private folder, its inventory and first commit, its log, the client's SSH key, the intake defaults and a build batch.
 - [Set Up the Defaults for New Nodes](en/docs/guides/1-setup-the-defaults-for-new-nodes.md): write the client inventory's `intake/defaults.yml`, without hashes.
 - [Build and Check a Raw Node](en/docs/guides/2-build-and-check-a-raw-node.md): build a node on the local Incus host, check it, its confirmation and its candidate, run it again, and check that an instance uc-node does not own is refused.
-- [Build a Node on an SSH Host](en/docs/guides/3-build-a-node-on-an-ssh-host.md): adopt a fresh Debian 13 host or an existing node over SSH, check it, build it again, and get back in when locked out.
+- [Build a Node on an SSH Host](en/docs/guides/3-build-a-node-on-an-ssh-host.md): adopt a fresh Debian 13 host over SSH, check it, build it again, and get back in when locked out.
 - [Hand Over to the Fleet](en/docs/guides/4-hand-over-to-the-fleet.md): what connected securely means, the confirmation and the candidate, the fingerprint at the console, admission with uc-controller, and rejections.
 - [Add a New Platform to the Raw Node Controller](en/docs/guides/add-a-new-platform.md): what a platform must provide, with the ssh platform as the worked example.
 - [Handle Secrets Committed to a Repository](en/docs/guides/secrets/handle-secrets-committed-to-a-repository.md): what to do when a secret reaches a repository.

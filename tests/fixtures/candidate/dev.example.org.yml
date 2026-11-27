@@ -1,0 +1,15 @@
+---
+# A candidate as the handover play gathers it, with values from the safe
+# values register.
+uc_candidate:
+  fqdn: dev.example.org
+  address: 203.0.113.21
+  ssh_port: 22
+  fingerprint: SHA256:EXAMPLEexampleEXAMPLEexampleEXAMPLEexample0
+  raw_node_batch: raw-1970-01-01-01
+  node_label: dev
+  platform: incus
+  producer: uc-node
+  producer_version: 0.3.0
+  contract: 0.3.1
+  built: "1970-01-01T00:00:00-05:00"

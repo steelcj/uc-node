@@ -1,0 +1,32 @@
+---
+# inventory/group_vars/all/handoff.yml
+#
+# How a built node is handed over: its confirmation on the node, and its
+# candidate in the client inventory. Used by tasks/confirmation.yml and the
+# handover play in build.yml. See uc-contracts' raw node contract, RN-REP-01,
+# and the raw node handoff design, uc-node egress.
+
+# The raw node contract version the build targets, written to the
+# confirmation and the candidate.
+uc_contract_version: "0.3.1"
+
+# uc-node's own version, from the repository's VERSION file: the
+# confirmation's baseline and the candidate's producer_version.
+uc_node_version: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/VERSION') | trim }}"
+
+# The confirmation, on the node (RN-REP-01).
+uc_confirmation_dir: /var/lib/raw-node
+uc_confirmation_file: "{{ uc_confirmation_dir }}/confirmation.yml"
+
+# The firewall managers the confirmation looks for with systemctl, in this
+# order. The first one active is reported in firewall. When none is active,
+# the first one installed is reported, with firewall_active false.
+uc_firewall_managers:
+  - foomuuri
+  - firewalld
+  - ufw
+  - nftables
+
+# The candidate, in the client inventory, read by uc-controller's admission.
+uc_candidates_dir: "{{ uc_client_inventory }}/candidates"
+uc_candidate_file: "{{ uc_candidates_dir }}/{{ node_fqdn }}.yml"

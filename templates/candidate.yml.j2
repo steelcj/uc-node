@@ -1,0 +1,21 @@
+{#
+  The node's candidate, from uc_candidate, as the raw node handoff design's
+  uc-node egress section defines it: its fields in its order, every string
+  in double quotes, as in the confirmation. ssh_port is the only value that
+  is not a string.
+#}
+# candidates/{{ uc_candidate.fqdn }}.yml
+# Written by uc-node after a build, read by uc-controller's admission.
+# Review it, compare the fingerprint at the node's console, and commit it.
+# A rebuild overwrites it, and a rejected build removes it.
+{{ uc_candidate.fqdn }}:
+  address: {{ uc_candidate.address | string | to_json }}
+  ssh_port: {{ uc_candidate.ssh_port | int }}
+  fingerprint: {{ uc_candidate.fingerprint | string | to_json }}
+  raw_node_batch: {{ uc_candidate.raw_node_batch | string | to_json }}
+  node_label: {{ uc_candidate.node_label | string | to_json }}
+  platform: {{ uc_candidate.platform | string | to_json }}
+  producer: {{ uc_candidate.producer | string | to_json }}
+  producer_version: {{ uc_candidate.producer_version | string | to_json }}
+  contract: {{ uc_candidate.contract | string | to_json }}
+  built: {{ uc_candidate.built | string | to_json }}

@@ -1,0 +1,366 @@
+---
+# Measure the raw node contract's confirmation on the node, write it to
+# /var/lib/raw-node/confirmation.yml (RN-REP-01), read it back through the
+# platform, and check it with uc-controller's checker when UC_CONTROLLER
+# names a uc-controller checkout.
+#
+# Runs after the reboot, so it reports the node as admission will find it.
+# Every value is measured here, with the tools on the node, never copied from
+# the node definition. The confirmation's fields, their order and their
+# types are the contract's, version uc_contract_version: every string is
+# written in double quotes, as the contract's Value types section advises.
+#
+# Sets uc_confirmation_reported, the confirmation as read back from the
+# node, and uc_node_fingerprint, the ED25519 host key's fingerprint in it,
+# for the candidate and for the rejection callback,
+# plugins/callback/uc_reject.py.
+
+- name: Read the hostname (RN-NET-01)
+  ansible.builtin.command:
+    argv: [hostname]
+  register: uc_measured_hostname
+  changed_when: false
+
+- name: Stop if the hostname is not the node's (RN-NET-01)
+  ansible.builtin.assert:
+    that:
+      - uc_measured_hostname.stdout | trim == node_hostname
+    fail_msg: "The node's hostname is {{ uc_measured_hostname.stdout | trim }}, not {{ node_hostname }}."
+    quiet: true
+
+- name: Read the time of the report
+  ansible.builtin.command:
+    argv: [date, "+%Y-%m-%dT%H:%M:%S%:z"]
+  register: uc_measured_time
+  changed_when: false
+
+- name: Read the machine ID
+  ansible.builtin.slurp:
+    src: /etc/machine-id
+  register: uc_measured_machine_id
+
+# getent exits 2 when there is no such account.
+- name: Look for the initial user's account (RN-ACC-01)
+  ansible.builtin.command:
+    argv: [getent, passwd, "{{ initial_username }}"]
+  register: uc_measured_account
+  changed_when: false
+  failed_when: uc_measured_account.rc not in [0, 2]
+
+- name: Read the initial user's groups (RN-ACC-04)
+  ansible.builtin.command:
+    argv: [id, -nG, "{{ initial_username }}"]
+  register: uc_measured_groups
+  changed_when: false
+  when: uc_measured_account.rc == 0
+
+- name: Find the sudoers files (RN-ACC-07)
+  ansible.builtin.find:
+    paths: /etc/sudoers.d
+    file_type: file
+    hidden: true
+  register: uc_measured_sudoers_d
+
+# A line is a comment when it starts with #, except #<digits>, which names a
+# user by ID in a rule, and #include or #includedir, which name no rule
+# themselves. grep exits 0 when a rule matches and 1 when none does.
+- name: Look for a sudoers rule with NOPASSWD or !authenticate (RN-ACC-07)
+  ansible.builtin.command:
+    argv: "{{ ['grep', '-q', '-P', '^(?!\\s*#(?![0-9]))(?!\\s*#include).*(NOPASSWD|!authenticate)', '/etc/sudoers'] + (uc_measured_sudoers_d.files | map(attribute='path') | sort | list) }}"
+  register: uc_measured_nopasswd
+  changed_when: false
+  failed_when: uc_measured_nopasswd.rc not in [0, 1]
+
+- name: Read the SSH server's settings (RN-SSH-01, RN-SSH-03)
+  ansible.builtin.command:
+    argv: [sshd, -T]
+  register: uc_measured_sshd
+  changed_when: false
+
+- name: Find the SSH host keys
+  ansible.builtin.find:
+    paths: /etc/ssh
+    patterns: ssh_host_*_key.pub
+    file_type: file
+  register: uc_measured_host_key_files
+
+- name: Read each host key's type
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  loop: "{{ uc_measured_host_key_files.files | map(attribute='path') | sort | list }}"
+  register: uc_measured_host_key_lines
+
+- name: Read each host key's fingerprint
+  ansible.builtin.command:
+    argv: [ssh-keygen, -l, -E, sha256, -f, "{{ item }}"]
+  loop: "{{ uc_measured_host_key_files.files | map(attribute='path') | sort | list }}"
+  register: uc_measured_host_key_fingerprints
+  changed_when: false
+
+- name: Describe each host key
+  ansible.builtin.set_fact:
+    uc_measured_host_keys: >-
+      {{ uc_measured_host_keys | default([]) + [{'type': item.0.content | b64decode | split | first,
+                                                 'fingerprint': (item.1.stdout | split)[1]}] }}
+  loop: "{{ uc_measured_host_key_lines.results | zip(uc_measured_host_key_fingerprints.results) | list }}"
+  loop_control:
+    label: "{{ item.0.item }}"
+
+- name: Ask systemctl which firewall managers are active
+  ansible.builtin.command:
+    argv: [systemctl, is-active, "{{ item }}"]
+  loop: "{{ uc_firewall_managers }}"
+  register: uc_measured_firewall_active
+  changed_when: false
+  failed_when: false
+
+- name: Ask systemctl which firewall managers are installed
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, "{{ item }}"]
+  loop: "{{ uc_firewall_managers }}"
+  register: uc_measured_firewall_enabled
+  changed_when: false
+  failed_when: false
+
+- name: Find the Python interpreter
+  ansible.builtin.setup:
+    gather_subset: ["!all", "!min", python]
+
+- name: Read the interfaces and their addresses
+  ansible.builtin.command:
+    argv: [ip, -j, addr]
+  register: uc_measured_ip_addr
+  changed_when: false
+
+- name: Read the IPv4 routes
+  ansible.builtin.command:
+    argv: [ip, -j, route]
+  register: uc_measured_ip_route
+  changed_when: false
+
+- name: Read the IPv6 routes
+  ansible.builtin.command:
+    argv: [ip, -j, -6, route]
+  register: uc_measured_ip6_route
+  changed_when: false
+
+- name: Note the interfaces other than loopback
+  ansible.builtin.set_fact:
+    uc_measured_links: "{{ uc_measured_ip_addr.stdout | from_json | rejectattr('link_type', 'eq', 'loopback') | list }}"
+
+# 0 is a permanent address, 1 a random one, 2 one stolen from another
+# device, 3 one set from user space.
+- name: Read how each interface's address was assigned
+  ansible.builtin.slurp:
+    src: /sys/class/net/{{ item }}/addr_assign_type
+  loop: "{{ uc_measured_links | map(attribute='ifname') | list }}"
+  register: uc_measured_assign_type
+  failed_when: false
+
+- name: Look for each interface's wireless directory
+  ansible.builtin.stat:
+    path: /sys/class/net/{{ item }}/wireless
+  loop: "{{ uc_measured_links | map(attribute='ifname') | list }}"
+  register: uc_measured_wireless
+
+- name: Look for ethtool
+  ansible.builtin.command:
+    argv: [sh, -c, command -v ethtool]
+  register: uc_measured_ethtool
+  changed_when: false
+  failed_when: false
+
+# ip reports the address in use. When the kernel says it is random and ip
+# gives no permaddr, ethtool -P reads the permanent one from the device.
+- name: Read the permanent address of each interface with a random one
+  ansible.builtin.command:
+    argv: [ethtool, -P, "{{ item.item }}"]
+  loop: "{{ uc_measured_assign_type.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  register: uc_measured_permanent
+  changed_when: false
+  failed_when: false
+  when:
+    - uc_measured_ethtool.rc == 0
+    - (item.content | default('') | b64decode | trim) == '1'
+    - (uc_measured_links | selectattr('ifname', 'eq', item.item) | first).permaddr is not defined
+
+- name: Describe each interface
+  ansible.builtin.set_fact:
+    uc_measured_interfaces: "{{ uc_measured_interfaces | default([]) + [uc_interface] }}"
+  loop: "{{ uc_measured_links }}"
+  loop_control:
+    loop_var: uc_link
+    label: "{{ uc_link.ifname }}"
+  vars:
+    uc_ethtool: "{{ uc_measured_permanent.results | selectattr('item.item', 'eq', uc_link.ifname) | map(attribute='stdout') | select('defined') | first | default('') }}"
+    uc_ethtool_mac: "{{ (uc_ethtool | regex_search('([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}')) or '' }}"
+    uc_mac: "{{ uc_link.permaddr | default((uc_ethtool_mac if uc_ethtool_mac not in ['', '00:00:00:00:00:00'] else uc_link.address | default(''))) }}"
+    uc_wireless: "{{ uc_measured_wireless.results | selectattr('item', 'eq', uc_link.ifname) | map(attribute='stat.exists') | first }}"
+    uc_up: "{{ uc_link.operstate == 'UP' or (uc_link.operstate == 'UNKNOWN' and 'LOWER_UP' in uc_link.flags | default([])) }}"
+    uc_interface:
+      name: "{{ uc_link.ifname }}"
+      type: "{{ 'wireless' if uc_wireless else ('ethernet' if uc_link.link_type == 'ether' else 'other') }}"
+      mac: "{{ uc_mac | lower }}"
+      state: "{{ 'up' if uc_up else 'down' }}"
+      default_route4: "{{ uc_measured_ip_route.stdout | from_json | selectattr('dst', 'eq', 'default') | selectattr('dev', 'defined') | selectattr('dev', 'eq', uc_link.ifname) | list | length > 0 }}"
+      default_route6: "{{ uc_measured_ip6_route.stdout | from_json | selectattr('dst', 'eq', 'default') | selectattr('dev', 'defined') | selectattr('dev', 'eq', uc_link.ifname) | list | length > 0 }}"
+      ip: "{{ uc_link.addr_info | default([]) | selectattr('family', 'eq', 'inet') | map(attribute='local') | list }}"
+      ip6: "{{ uc_link.addr_info | default([]) | selectattr('family', 'eq', 'inet6') | selectattr('scope', 'eq', 'global') | map(attribute='local') | list }}"
+
+- name: Gather the confirmation
+  ansible.builtin.set_fact:
+    uc_confirmation:
+      hostname: "{{ uc_measured_hostname.stdout | trim }}"
+      contract: "{{ uc_contract_version }}"
+      baseline: "{{ uc_node_version }}"
+      timestamp: "{{ uc_measured_time.stdout | trim }}"
+      machine_id: "{{ uc_measured_machine_id.content | b64decode | trim }}"
+      user: "{{ initial_username if uc_measured_account.rc == 0 else '' }}"
+      sudo: "{{ uc_measured_account.rc == 0 and (uc_measured_groups.stdout.split() | intersect(['sudo', 'wheel']) | length > 0) }}"
+      sudo_nopasswd: "{{ uc_measured_nopasswd.rc == 0 }}"
+      ssh_port: "{{ uc_sshd_port | int }}"
+      ssh_password_auth: "{{ uc_sshd_password != 'no' or uc_sshd_keyboard != 'no' }}"
+      ssh_host_keys: "{{ uc_measured_host_keys | default([]) }}"
+      firewall: "{{ uc_active_managers | union(uc_installed_managers) | first | default('') }}"
+      firewall_active: "{{ uc_active_managers | length > 0 }}"
+      python: "{{ ansible_facts['python']['executable'] | default('') }}"
+      interfaces: "{{ uc_measured_interfaces | default([]) }}"
+  vars:
+    # sshd -T prints one "keyword value" line per setting, in lower case,
+    # and a keyword such as port once per value; the first is reported. A
+    # setting that is missing is taken as the unsafe value.
+    uc_sshd_lines: "{{ uc_measured_sshd.stdout_lines | map('trim') | list }}"
+    uc_sshd_port: "{{ uc_sshd_lines | select('match', '^port\\s') | map('split') | map('last') | first | default('0') }}"
+    uc_sshd_password: "{{ uc_sshd_lines | select('match', '^passwordauthentication\\s') | map('split') | map('last') | first | default('yes') }}"
+    uc_sshd_keyboard: "{{ uc_sshd_lines | select('match', '^kbdinteractiveauthentication\\s') | map('split') | map('last') | first | default('yes') }}"
+    uc_active_managers: "{{ uc_measured_firewall_active.results | selectattr('stdout', 'eq', 'active') | map(attribute='item') | list }}"
+    uc_installed_managers: >-
+      {{ uc_measured_firewall_enabled.results | rejectattr('stdout', 'in', ['', 'not-found', 'masked', 'masked-runtime'])
+         | map(attribute='item') | list }}
+
+- name: Make the confirmation's directory
+  ansible.builtin.file:
+    path: "{{ uc_confirmation_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the confirmation (RN-REP-01)
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/confirmation.yml.j2"
+    dest: "{{ uc_confirmation_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# Read back through the platform, incus exec or the pinned SSH connection,
+# so what is checked, and the fingerprint the candidate carries, are what
+# the node holds.
+- name: Read the confirmation back (RN-REP-01)
+  ansible.builtin.slurp:
+    src: "{{ uc_confirmation_file }}"
+  register: uc_confirmation_read
+
+- name: Note the confirmation as the node reports it
+  ansible.builtin.set_fact:
+    uc_confirmation_reported: "{{ (uc_confirmation_read.content | b64decode | from_yaml)[node_hostname] | default({}) }}"
+
+- name: Note the ED25519 host key's fingerprint
+  ansible.builtin.set_fact:
+    uc_node_fingerprint: >-
+      {{ (uc_confirmation_reported.ssh_host_keys | default([])
+          | selectattr('type', 'eq', 'ssh-ed25519') | map(attribute='fingerprint') | first) | default('') }}
+
+- name: Stop if the node has no ED25519 host key
+  ansible.builtin.assert:
+    that:
+      - uc_node_fingerprint is ansible.builtin.match('^SHA256:[A-Za-z0-9+/]{43}$')
+    fail_msg: "The confirmation lists no ED25519 host key, so there is no fingerprint to hand over for admission."
+    quiet: true
+
+# The temporary copy is the controller host's, and changes nothing on the
+# node, so its tasks never report a change.
+- name: Check the confirmation with uc-controller's checker
+  when: lookup('ansible.builtin.env', 'UC_CONTROLLER') | length > 0
+  vars:
+    uc_checker: "{{ lookup('ansible.builtin.env', 'UC_CONTROLLER') }}/scripts/check_raw_confirmation.py"
+  block:
+    - name: Make a temporary file for the confirmation, on the controller host
+      ansible.builtin.tempfile:
+        state: file
+        prefix: uc-node-confirmation-
+        suffix: .yml
+      register: uc_confirmation_copy
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Copy the confirmation read back into it
+      ansible.builtin.copy:
+        content: "{{ uc_confirmation_read.content | b64decode }}"
+        dest: "{{ uc_confirmation_copy.path }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Run check_raw_confirmation.py from UC_CONTROLLER
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "{{ uc_checker }}"
+          - "{{ uc_confirmation_copy.path }}"
+          - --user
+          - "{{ initial_username }}"
+          - --port
+          - "{{ ssh_port | string }}"
+      register: uc_confirmation_check
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      failed_when: false
+
+    - name: Note the checker's result
+      ansible.builtin.set_fact:
+        uc_confirmation_result: "{{ uc_confirmation_check.stdout | from_json if uc_confirmation_check.stdout is ansible.builtin.match('\\s*\\{') else {'result': 'error', 'findings': []} }}"
+
+    # The clause identifiers of the failed findings, for the rejection's
+    # clauses. Identifiers only: a finding's message may hold node output.
+    - name: Note the clauses that failed
+      ansible.builtin.set_fact:
+        uc_reject_clauses: >-
+          {{ uc_confirmation_result.findings | default([]) | selectattr('severity', 'eq', 'fail')
+             | map(attribute='clause') | select('match', '^RN-[A-Z]+-[0-9]{2}$') | unique | list }}
+
+    - name: Show the checker's findings
+      ansible.builtin.debug:
+        msg: "{{ uc_confirmation_result.findings }}"
+      when: uc_confirmation_result.findings | default([]) | length > 0
+
+    - name: Stop if the confirmation does not meet the contract (RN-REP-01)
+      ansible.builtin.assert:
+        that:
+          - uc_confirmation_result.result == 'pass'
+        fail_msg: >-
+          check_raw_confirmation.py found that the confirmation on {{ inventory_hostname }} does
+          not meet the contract: {{ uc_confirmation_result.result }}. The task above shows its
+          findings{{ '' if uc_confirmation_check.rc in [0, 1] else ', and it exited ' ~ uc_confirmation_check.rc ~ ': ' ~ (uc_confirmation_check.stderr_lines | last | default('')) }}.
+        quiet: true
+
+  always:
+    - name: Remove the temporary copy
+      ansible.builtin.file:
+        path: "{{ uc_confirmation_copy.path }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      when: uc_confirmation_copy.path is defined
+
+- name: Warn that the confirmation was not checked
+  ansible.builtin.debug:
+    msg: "WARNING: UC_CONTROLLER is not set, so the confirmation was not checked with uc-controller's check_raw_confirmation.py. Set UC_CONTROLLER to a uc-controller checkout to check it."
+  when: lookup('ansible.builtin.env', 'UC_CONTROLLER') | length == 0

@@ -127,7 +127,7 @@ def node_definition(public_key: str, label: str = "raw", batch: str = BATCH, **e
 
 def write_node_definition(inventory: Path, data: dict) -> Path:
     path = inventory / "intake" / f"{data['node_label']}.{data['client_domain']}.yml"
-    path.write_text("---\n" + yaml.safe_dump(data, sort_keys=False, width=1000), encoding="utf-8")
+    path.write_text("---\n" + yaml.safe_dump(data, sort_keys=False, width=80), encoding="utf-8")
     path.chmod(0o644)
     return path
 

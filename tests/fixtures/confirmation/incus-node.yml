@@ -1,0 +1,31 @@
+---
+# A confirmation as tasks/confirmation.yml gathers it on an Incus node, with
+# values from the safe values register.
+uc_confirmation:
+  hostname: raw
+  contract: "0.3.1"
+  baseline: "0.3.0"
+  timestamp: "1970-01-01T00:00:00+00:00"
+  machine_id: 1970010100000000000000000000ab21
+  user: initial
+  sudo: true
+  sudo_nopasswd: false
+  ssh_port: 22
+  ssh_password_auth: false
+  ssh_host_keys:
+    - type: ecdsa-sha2-nistp256
+      fingerprint: SHA256:EXAMPLEexampleEXAMPLEexampleEXAMPLEexample1
+    - type: ssh-ed25519
+      fingerprint: SHA256:EXAMPLEexampleEXAMPLEexampleEXAMPLEexample0
+  firewall: foomuuri
+  firewall_active: true
+  python: /usr/bin/python3
+  interfaces:
+    - name: eth0
+      type: ethernet
+      mac: 02:00:00:ab:00:21
+      state: up
+      default_route4: true
+      default_route6: true
+      ip: [10.0.0.21]
+      ip6: ["2001:db8::21"]

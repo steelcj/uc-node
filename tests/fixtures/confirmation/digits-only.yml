@@ -1,0 +1,39 @@
+---
+# Values a YAML 1.1 reader would turn into numbers when not quoted: a machine
+# ID of decimal digits only, from the register's 19700101 range, and a
+# version that looks like a number. An interface with no addresses, and one
+# host key.
+uc_confirmation:
+  hostname: dev
+  contract: "0.3.1"
+  baseline: "1.0"
+  timestamp: "1970-01-01T00:00:00-05:00"
+  machine_id: "19700101000000000000000000000022"
+  user: initial
+  sudo: true
+  sudo_nopasswd: false
+  ssh_port: 22
+  ssh_password_auth: false
+  ssh_host_keys:
+    - type: ssh-ed25519
+      fingerprint: SHA256:EXAMPLEexampleEXAMPLEexampleEXAMPLEexample2
+  firewall: foomuuri
+  firewall_active: true
+  python: ""
+  interfaces:
+    - name: eth0
+      type: ethernet
+      mac: 02:00:00:ab:00:22
+      state: up
+      default_route4: true
+      default_route6: false
+      ip: [203.0.113.22]
+      ip6: []
+    - name: eth1
+      type: other
+      mac: 02:00:00:ab:00:23
+      state: down
+      default_route4: false
+      default_route6: false
+      ip: []
+      ip6: []

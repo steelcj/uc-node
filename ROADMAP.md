@@ -39,10 +39,6 @@ The role's templates always write `AuthorizedKeysCommand {{ openssh_authorized_k
 
 ## Later
 
-### Write confirmation.yml
-
-The orchestration controller needs to know that a node meets the contract, and how to reach it. uc-node does not write `confirmation.yml` yet. Decide what it holds, for example the fully qualified domain name, the addresses, `ssh_port` and the build's time, and where it is written: on the node, on the controller, or both.
-
 ### Decide which provider agents may stay on a raw node
 
 The ssh platform disables cloud-init after the first boot. Other provider agents, such as `qemu-guest-agent`, are left as they are. Write a contract clause that says which agents may remain, and what the build does with the others.

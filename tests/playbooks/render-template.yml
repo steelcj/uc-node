@@ -1,0 +1,15 @@
+---
+# Render one of the repository's templates from a fixture, for the tests.
+#
+#   ansible-playbook tests/playbooks/render-template.yml -e @<fixture> \
+#     -e uc_test_template=<template> -e uc_test_output=<file>
+- name: Render a template from a fixture
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Render the template
+      ansible.builtin.template:
+        src: "{{ uc_test_template }}"
+        dest: "{{ uc_test_output }}"
+        mode: "0644"

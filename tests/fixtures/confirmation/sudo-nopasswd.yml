@@ -1,0 +1,28 @@
+---
+# A node that breaks RN-ACC-07 and RN-SSH-03: the checker must fail it.
+uc_confirmation:
+  hostname: raw
+  contract: "0.3.1"
+  baseline: "0.3.0"
+  timestamp: "1970-01-01T00:00:00+00:00"
+  machine_id: 1970010100000000000000000000ab21
+  user: initial
+  sudo: true
+  sudo_nopasswd: true
+  ssh_port: 22
+  ssh_password_auth: true
+  ssh_host_keys:
+    - type: ssh-ed25519
+      fingerprint: SHA256:EXAMPLEexampleEXAMPLEexampleEXAMPLEexample0
+  firewall: foomuuri
+  firewall_active: true
+  python: /usr/bin/python3
+  interfaces:
+    - name: eth0
+      type: ethernet
+      mac: 02:00:00:ab:00:21
+      state: up
+      default_route4: true
+      default_route6: false
+      ip: [10.0.0.21]
+      ip6: []

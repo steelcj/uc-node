@@ -1,0 +1,48 @@
+{#
+  The raw node contract's confirmation, RN-REP-01, from uc_confirmation,
+  which tasks/confirmation.yml measures on the node. The fields are the
+  contract's, in its order. Every string is written in double quotes with
+  to_json, whose strings are valid YAML double-quoted scalars, so no YAML 1.1
+  reader turns a machine ID, MAC, address or version into a number. The
+  booleans and ssh_port are the only values that are not strings.
+#}
+# {{ uc_confirmation_file | default('/var/lib/raw-node/confirmation.yml') }}
+# Written by uc-node, the raw node controller, from values measured on this
+# node. Raw node contract {{ uc_confirmation.contract }}, RN-REP-01.
+{{ uc_confirmation.hostname }}:
+  contract: {{ uc_confirmation.contract | string | to_json }}
+  baseline: {{ uc_confirmation.baseline | string | to_json }}
+  timestamp: {{ uc_confirmation.timestamp | string | to_json }}
+  machine_id: {{ uc_confirmation.machine_id | string | to_json }}
+  user: {{ uc_confirmation.user | string | to_json }}
+  sudo: {{ uc_confirmation.sudo | bool | to_json }}
+  sudo_nopasswd: {{ uc_confirmation.sudo_nopasswd | bool | to_json }}
+  ssh_port: {{ uc_confirmation.ssh_port | int }}
+  ssh_password_auth: {{ uc_confirmation.ssh_password_auth | bool | to_json }}
+{% if uc_confirmation.ssh_host_keys | length == 0 %}
+  ssh_host_keys: []
+{% else %}
+  ssh_host_keys:
+{% for key in uc_confirmation.ssh_host_keys %}
+    - type: {{ key.type | string | to_json }}
+      fingerprint: {{ key.fingerprint | string | to_json }}
+{% endfor %}
+{% endif %}
+  firewall: {{ uc_confirmation.firewall | string | to_json }}
+  firewall_active: {{ uc_confirmation.firewall_active | bool | to_json }}
+  python: {{ uc_confirmation.python | string | to_json }}
+{% if uc_confirmation.interfaces | length == 0 %}
+  interfaces: []
+{% else %}
+  interfaces:
+{% for interface in uc_confirmation.interfaces %}
+    - name: {{ interface.name | string | to_json }}
+      type: {{ interface.type | string | to_json }}
+      mac: {{ interface.mac | string | to_json }}
+      state: {{ interface.state | string | to_json }}
+      default_route4: {{ interface.default_route4 | bool | to_json }}
+      default_route6: {{ interface.default_route6 | bool | to_json }}
+      ip: {{ interface.ip | map('string') | list | to_json }}
+      ip6: {{ interface.ip6 | map('string') | list | to_json }}
+{% endfor %}
+{% endif %}

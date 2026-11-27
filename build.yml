@@ -283,3 +283,87 @@
           - boot_cycles | length == 0
         fail_msg: "systemd found an ordering cycle while booting {{ inventory_hostname }}, and skipped a unit to break it. The skipped unit may be the firewall. The task above shows the cycle."
         quiet: true
+
+# The node as admission will find it: the confirmation, measured on the
+# node after the reboot, written to /var/lib/raw-node/confirmation.yml, read
+# back through the platform and checked.
+- name: Confirm the node meets the contract
+  hosts: raw_node
+  gather_facts: false
+
+  tasks:
+    - name: Measure, write, read back and check the confirmation
+      ansible.builtin.import_tasks: tasks/confirmation.yml
+
+# uc-node's job ends here, at connected securely: the node meets the
+# contract, its confirmation is on the node, and its candidate is in the
+# client inventory's candidates/. The tasks run on the node's play, and
+# write on the controller host with delegate_to, so a failure here is the
+# node's and is recorded as a rejection.
+- name: Hand the node over as a candidate
+  hosts: raw_node
+  gather_facts: false
+
+  tasks:
+    # On the ssh platform admission connects where the build did. On Incus,
+    # to the address the node reports on its IPv4 default route.
+    - name: Note the address admission connects to
+      ansible.builtin.set_fact:
+        uc_candidate_address: >-
+          {{ node_address if platform == 'ssh' else
+             (uc_confirmation_reported.interfaces | default([]) | selectattr('default_route4', 'eq', true)
+              | map(attribute='ip') | flatten | first | default('')) }}
+
+    - name: Stop if there is no address to hand over
+      ansible.builtin.assert:
+        that:
+          - uc_candidate_address | length > 0
+        fail_msg: "The confirmation reports no IPv4 address on a default route, so there is no address for admission to connect to."
+        quiet: true
+
+    - name: Read the time the build finished, on the controller host
+      ansible.builtin.command:
+        argv: [date, "+%Y-%m-%dT%H:%M:%S%:z"]
+      register: uc_built
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Make the client inventory's candidates/
+      ansible.builtin.file:
+        path: "{{ uc_candidates_dir }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+
+    - name: Write the candidate
+      ansible.builtin.template:
+        src: templates/candidate.yml.j2
+        dest: "{{ uc_candidate_file }}"
+        mode: "0644"
+      delegate_to: localhost
+      become: false
+      vars:
+        uc_candidate:
+          fqdn: "{{ node_fqdn }}"
+          address: "{{ uc_candidate_address }}"
+          ssh_port: "{{ ssh_port }}"
+          fingerprint: "{{ uc_node_fingerprint }}"
+          raw_node_batch: "{{ raw_node_batch }}"
+          node_label: "{{ node_label }}"
+          platform: "{{ platform }}"
+          producer: uc-node
+          producer_version: "{{ uc_node_version }}"
+          contract: "{{ uc_contract_version }}"
+          built: "{{ uc_built.stdout | trim }}"
+
+    - name: Show the node, and what to compare at its console before admission
+      ansible.builtin.debug:
+        msg:
+          - "{{ node_fqdn }} is connected securely. Its candidate is {{ uc_candidate_file }}."
+          - "Address: {{ uc_candidate_address }}, SSH port {{ ssh_port }}"
+          - "ED25519 host key: {{ uc_node_fingerprint }}"
+          - "Before admission, compare this fingerprint with the one the node's console shows:"
+          - "{{ ('  incus exec ' ~ incus_instance ~ ' -- ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub') if platform == 'incus' else '  at the provider''s console: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub' }}"
+          - "{{ 'The confirmation passed check_raw_confirmation.py.' if uc_confirmation_result is defined else 'WARNING: the confirmation was not checked, since UC_CONTROLLER is not set.' }}"

@@ -49,7 +49,7 @@ CRYPT_HASH = re.compile(r"\$(?:1|5|6|y|2[aby])\$[./A-Za-z0-9$]{8,}")
 FALLBACKS = {
     "node_label": "raw",
     "platform": "incus",
-    "initial_user": "initial",
+    "initial_username": "initial",
     "ssh_port": 22,
     "ssh_sources": [],
 }
@@ -343,7 +343,7 @@ QUESTIONS = [
     ("client_domain", DOMAIN_QUESTION, check_domain),
     ("node_label", f"Node label ({', '.join(NODE_LABELS)})", check_label),
     ("platform", f"Platform ({', '.join(PLATFORMS)})", check_platform),
-    ("initial_user", "Initial user", check_user),
+    ("initial_username", "Initial user", check_user),
     ("ssh_public_key", KEY_LABEL, check_key),
     ("ssh_port", "SSH port", check_port),
     ("ssh_sources", SOURCES_LABEL, check_sources),
@@ -420,7 +420,7 @@ def node_definition(values):
         "node_label": values["node_label"],
         "platform": values["platform"],
         **platform_fields,
-        "initial_username": values["initial_user"],
+        "initial_username": values["initial_username"],
         "ssh_public_key": values["ssh_public_key"],
         "ssh_port": values["ssh_port"],
         "ssh_sources": values["ssh_sources"],
@@ -475,7 +475,7 @@ def ssh_config_block(values):
         f"    IdentityFile {private_key_path(values['ssh_public_key'])}",
         "    IdentitiesOnly yes",
         "    # Optional, only for manual ssh/scp; the build passes the user itself",
-        f"    User {values['initial_user']}",
+        f"    User {values['initial_username']}",
     ])
 
 

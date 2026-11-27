@@ -247,7 +247,7 @@ class NewNode(unittest.TestCase):
         self.defaults = self.inventory / "intake" / "defaults.yml"
         self.defaults.write_text(yaml.safe_dump({
             "client_domain": "example.org",
-            "initial_user": "initial",
+            "initial_username": "initial",
             "ssh_public_key": str(self.key),
             "ssh_port": 22,
             "ssh_sources": ["198.51.100.10/32"],
@@ -354,13 +354,22 @@ class NewNode(unittest.TestCase):
         self.assertTrue((self.inventory / "intake" / "dev.example.com.yml").exists())
 
     def test_refuses_a_defaults_setting_it_does_not_offer(self):
-        for key in ("initial_username", "foomuuri_ssh_port", "node_address"):
+        # initial_user was the setting's name before it took the node
+        # definition's, initial_username.
+        for key in ("initial_user", "foomuuri_ssh_port", "node_address"):
             with self.subTest(key=key):
                 self.defaults.write_text(f"client_domain: example.org\n{key}: x\n")
                 result = self.run_new_node(self.GOOD)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"sets {key}, which new-node does not offer", result.stderr)
                 self.assertFalse((self.inventory / "intake" / "dev.example.org.yml").exists())
+
+    def test_the_initial_user_setting_is_the_node_definitions_name(self):
+        self.defaults.write_text(self.defaults.read_text().replace("initial_username: initial", "initial_username: admin"))
+        result = self.run_new_node(self.GOOD)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        data = yaml.safe_load((self.inventory / "intake" / "dev.example.org.yml").read_text())
+        self.assertEqual(data["initial_username"], "admin")
 
     def test_writes_only_fields_the_build_allows(self):
         platforms = yaml.safe_load((helpers.REPO / "inventory" / "group_vars" / "all" / "platforms.yml").read_text())

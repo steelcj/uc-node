@@ -1,7 +1,7 @@
 ---
 title: Hand Over to the Fleet
 description: What connected securely means, where a built node's confirmation and candidate are, how to compare its fingerprint at the console, review and commit the candidate, and admit it with uc-controller's 05_admit.yml, and what a rejection looks like and what to do with it.
-version: 0.1.0
+version: 0.1.1
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -135,7 +135,7 @@ cd ~/.private/uc/example-org/uc-inventory
 git status --short
 git diff candidates/
 UC_CONTROLLER=~/uc-controller git add candidates/dev.example.org.yml intake/dev.example.org.yml
-UC_CONTROLLER=~/uc-controller git commit -m "Candidate dev.example.org, batch raw-1970-01-01-01"
+UC_CONTROLLER=~/uc-controller git commit -m "Candidate dev.example.org, batch raw-YYYY-MM-DD-NN"
 cd -
 ```
 
@@ -151,7 +151,7 @@ The file is not a secret, but it is not part of the inventory either, so make it
 
 ```sh
 inventory=~/.private/uc/example-org/uc-inventory
-batch=raw-1970-01-01-01
+batch=raw-YYYY-MM-DD-NN   # the batch the node definitions name
 candidates=$(mktemp --suffix=.yml)
 python3 - "$batch" "$inventory"/candidates/*.yml > "$candidates" <<'EOF'
 import sys, yaml
@@ -181,12 +181,13 @@ Admit only candidates whose fingerprint you compared at the console. Remove any 
 
 ### Run admission
 
-From the uc-controller checkout, with the client inventory's raw stage and its onboard stage, and the batch password in `~/.secrets/uc/fleet/batches/raw-1970-01-01-01.yml`:
+From the uc-controller checkout, with the client inventory's raw stage and its onboard stage, and the batch password in `~/.secrets/uc/fleet/batches/raw-YYYY-MM-DD-NN.yml`, in the same shell as the step above, so `$batch` and `$candidates` are set. Admission logs in as the initial user with the client's key, so load it into the agent first, as [Set Up a Client](0-set-up-a-client.md#make-the-clients-ssh-key) shows:
 
 ```sh
+ssh-add -t 1h ~/.ssh/example-org-raw-initial-id_ed25519
 cd ~/uc-controller
 ansible-playbook $(scripts/inventory-args ~/.private/uc/example-org/uc-inventory raw onboard/dev) \
-  ingress/playbooks/05_admit.yml -e admit_batch_id=raw-1970-01-01-01 -e @"$candidates"
+  ingress/playbooks/05_admit.yml -e admit_batch_id="$batch" -e @"$candidates"
 rm "$candidates"
 cd -
 ```
@@ -249,4 +250,5 @@ Leave the rejection files where they are. They are the record of what happened, 
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.1 | 2026-11-27 | Batch names in commands are `raw-YYYY-MM-DD-NN`, since `raw-1970-01-01-01` is reserved for documents and tests, and admission takes the batch from `$batch`. Load the client's key before admission |
 | 0.1.0 | 2026-11-27 | First version, provisional: connected securely, the confirmation and the candidate, comparing the fingerprint at the console, reviewing and committing the candidate, admission with `05_admit.yml` through `admit_candidates` until it reads `candidates/`, and rejections |

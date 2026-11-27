@@ -1,7 +1,7 @@
 ---
 title: Hand Over to the Fleet
 description: What connected securely means, where a built node's confirmation and candidate are, how to compare its fingerprint at the console, review and commit the candidate, and admit it with uc-controller's 05_admit.yml, and what a rejection looks like and what to do with it.
-version: 0.1.2
+version: 0.1.3
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -128,18 +128,20 @@ If the two differ, do not admit the node. Something other than the node you buil
 
 ## Review and commit the candidate
 
-uc-node writes the candidate and never commits it. Look at what changed in the client inventory, then commit it yourself, with `UC_CONTROLLER` set so the pre-commit hook can run uc-controller's `check_inventory.py`:
+uc-node writes the candidate and never commits it. Stage the candidate and the node definition, look at what is staged, then commit it yourself, with `UC_CONTROLLER` set so the pre-commit hook can run uc-controller's `check_inventory.py`:
 
 ```sh
 cd ~/.private/uc/example-org/uc-inventory
 git status --short
-git diff candidates/
-UC_CONTROLLER=~/uc-controller git add candidates/dev.example.org.yml intake/dev.example.org.yml
+git add candidates/dev.example.org.yml intake/dev.example.org.yml
+git diff --cached
 UC_CONTROLLER=~/uc-controller git commit -m "Candidate dev.example.org, batch raw-YYYY-MM-DD-NN"
 cd -
 ```
 
-The hook refuses a candidate that holds a crypt hash, a vault header, a private key or a lookup. A candidate holds none of them.
+`git diff --cached` shows what the commit will hold. On a first build the candidate is a new file, which plain `git diff` does not show. On a rebuild it shows the lines that changed, which should be only `built`, unless the node was rebuilt from scratch, when the address and the fingerprint change too. If the node definition was committed earlier, as in the client inventory's first commit, `git add` finds nothing new in it, and the commit holds the candidate alone.
+
+The hook refuses a candidate that holds a crypt hash, a vault header, a private key or a lookup. A candidate holds none of them. It also shows yamllint's warnings, which do not stop the commit.
 
 ## Admit the node
 
@@ -181,10 +183,10 @@ Admit only candidates whose fingerprint you compared at the console. Remove any 
 
 ### Run admission
 
-From the uc-controller checkout, with the client inventory's raw stage and its onboard stage, and the batch password in `~/.secrets/uc/fleet/batches/raw-YYYY-MM-DD-NN.yml`, in the same shell as the step above, so `$batch` and `$candidates` are set. Admission logs in as the initial user with the client's key, so load it into the agent first, as [Set Up a Client](0-set-up-a-client.md#make-the-clients-ssh-key) shows:
+From the uc-controller checkout, with the client inventory's raw stage and its onboard stage, and the batch password in `~/.secrets/uc/fleet/batches/raw-YYYY-MM-DD-NN.yml`, in the same shell as the step above, so `$batch` and `$candidates` are set. Admission logs in as the initial user with the client's key, `onboard_ssh_private_key_file`, and offers only that key, with `IdentitiesOnly=yes`. If the key has a passphrase, it must be in the agent. Check, and load it if it is not listed, as [Set Up a Client](0-set-up-a-client.md#make-the-clients-ssh-key) shows:
 
 ```sh
-ssh-add -t 1h ~/.ssh/example-org-raw-initial-id_ed25519
+ssh-add -l | grep example-org-raw-initial-id_ed25519 || ssh-add -t 1h ~/.ssh/example-org-raw-initial-id_ed25519
 cd ~/uc-controller
 ansible-playbook $(scripts/inventory-args ~/.private/uc/example-org/uc-inventory raw onboard/dev) \
   ingress/playbooks/05_admit.yml -e admit_batch_id="$batch" -e @"$candidates"
@@ -192,7 +194,27 @@ rm "$candidates"
 cd -
 ```
 
-Admission scans the node's host keys, reads its confirmation as the initial user with the controller's key, checks it, admits it only when the keys and the console fingerprint agree, writes it to `raw/admitted.yml` and `ssh/known_hosts`, and confirms a become with the batch password. Commit those in the client inventory afterwards, as uc-controller's guides describe. A candidate admission refuses is uc-controller's rejection, which its own log entry records.
+Admission scans the node's host keys, reads its confirmation as the initial user with the controller's key, checks it, admits it only when the keys and the console fingerprint agree, writes it to `raw/admitted.yml` and `ssh/known_hosts`, and confirms a become with the batch password. It ends with one line per candidate, and exits 0 when every candidate was admitted or is known:
+
+```text
+TASK [Report every candidate] **************************************************
+ok: [localhost] =>
+    msg:
+    - '10.0.0.21: admitted dev - dev is new on every count'
+```
+
+Admission names the node by its hostname, `dev`, not by its fully qualified domain name as the candidate does: `raw/admitted.yml` gains a host `dev`, with its address, port, contract, baseline, machine ID, MAC addresses, batch and the time of admission, and `ssh/known_hosts` gains its three host keys under `dev`. Check that the ED25519 key there is the one you compared at the console, then commit both:
+
+```sh
+cd ~/.private/uc/example-org/uc-inventory
+ssh-keygen -lf ssh/known_hosts
+git diff raw/admitted.yml
+git add raw/admitted.yml ssh/known_hosts
+UC_CONTROLLER=~/uc-controller git commit -m "Admit dev.example.org, batch raw-YYYY-MM-DD-NN"
+cd -
+```
+
+A candidate admission refuses is uc-controller's rejection, which its own log entry records.
 
 ### This will change
 
@@ -267,7 +289,14 @@ Read the build's output for the failed task's message, then decide, as the lifec
 
 - Fix and rebuild. A wrong setting in the node definition, a batch whose password does not match, or a firewall setting that left the controller out: fix it, and build again. A build that passes writes the candidate again.
 - Rebuild from scratch. On Incus, `incus delete --force dev-example-org`, then build. On the ssh platform, reinstall the host at the provider, check its new host key, and adopt it again.
-- Leave it. A node you no longer want: delete it, and its node definition in `intake/`.
+- Leave it. A node you no longer want: delete it, and its node definition in `intake/`. On Incus:
+
+  ```sh
+  incus delete --force stage-example-org
+  rm ~/.private/uc/example-org/uc-inventory/intake/stage.example.org.yml
+  ```
+
+  If the node definition was committed, remove it with `git rm` instead, and commit the removal.
 
 Leave the rejection files where they are. They are the record of what happened, one file per rejection, written once. `logs/` sits beside the client inventory, not in it, so nothing there is committed with the inventory, and `uc lock` covers it with the client's folder.
 
@@ -275,6 +304,7 @@ Leave the rejection files where they are. They are the record of what happened, 
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.3 | 2026-11-27 | From phase two's run: review the candidate with `git diff --cached` after `git add`, since plain `git diff` shows nothing for a new file; a node definition committed earlier is no change; `UC_CONTROLLER` only on the commit; check the agent before `ssh-add`; admission's report, that it names the node by its hostname, what it writes, and the commit of `raw/admitted.yml` and `ssh/known_hosts`; how to leave a rejected node on Incus |
 | 0.1.2 | 2026-11-27 | A rejection removes the candidate from the working tree even when it was committed, so `git status` shows a deletion, and committing it keeps the client inventory saying what the fleet wants |
 | 0.1.1 | 2026-11-27 | Batch names in commands are `raw-YYYY-MM-DD-NN`, since `raw-1970-01-01-01` is reserved for documents and tests, and admission takes the batch from `$batch`. Load the client's key before admission |
 | 0.1.0 | 2026-11-27 | First version, provisional: connected securely, the confirmation and the candidate, comparing the fingerprint at the console, reviewing and committing the candidate, admission with `05_admit.yml` through `admit_candidates` until it reads `candidates/`, and rejections |

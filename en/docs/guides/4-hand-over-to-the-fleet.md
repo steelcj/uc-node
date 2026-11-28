@@ -1,7 +1,7 @@
 ---
 title: Hand Over to the Fleet
-description: What connected securely means, where a built node's confirmation and candidate are, how to compare its fingerprint at the console, review and commit the candidate, and admit it with uc-controller's 05_admit.yml, and what a rejection looks like and what to do with it.
-version: 0.1.3
+description: What connected securely means, where a built node's confirmation and candidate are, how to compare its fingerprint at the console, review and commit the candidate, and admit it with uc-controller's 05_admit.yml from candidates/, and what a rejection looks like and what to do with it.
+version: 0.1.4
 status: provisional
 date: 2026-11-27
 language: en-CA
@@ -9,7 +9,7 @@ language: en-CA
 
 # Hand Over to the Fleet
 
-uc-node takes a node from raw to connected securely, and uc-controller takes it from there. This guide covers the handover: what uc-node leaves behind when a build passes, what you check before admission, how to admit the node with uc-controller as admission works today, and what uc-node leaves behind when a build fails.
+uc-node takes a node from raw to connected securely, and uc-controller takes it from there. This guide covers the handover: what uc-node leaves behind when a build passes, what you check before admission, how to admit the node with uc-controller 0.2.0, and what uc-node leaves behind when a build fails.
 
 It assumes a node built as [Build and Check a Raw Node](2-build-and-check-a-raw-node.md) or [Build a Node on an SSH Host](3-build-a-node-on-an-ssh-host.md) describes. The examples use the client `example-org`, whose inventory is `~/.private/uc/example-org/uc-inventory`, the node `dev.example.org` on Incus, the batch `raw-1970-01-01-01`, and a uc-controller checkout at `~/uc-controller`.
 
@@ -145,65 +145,29 @@ The hook refuses a candidate that holds a crypt hash, a vault header, a private 
 
 ## Admit the node
 
-uc-controller's admission, `ingress/playbooks/05_admit.yml`, does not read `candidates/` yet. It takes its candidates as `admit_candidates`, a list of `{address, fingerprint}` in a file given with `-e @`, each fingerprint one read at the node's console, and the batch as `admit_batch_id`. Until admission reads `candidates/` directly, turn the candidates of one batch into that file.
+From uc-controller 0.2.0, admission reads the candidates of one batch from `candidates/` itself, with `admit_from_candidates=true`. uc-controller's guide Admit and Onboard, `en/docs/guides/admit-and-onboard.md` in uc-controller, covers it in full: what admission checks, what it refuses and why, the name it gives the node, and the commit. In short:
 
-### Turn the candidates into admit_candidates
-
-The file is not a secret, but it is not part of the inventory either, so make it outside the inventory:
-
-```sh
-inventory=~/.private/uc/example-org/uc-inventory
-batch=raw-YYYY-MM-DD-NN   # the batch the node definitions name
-candidates=$(mktemp --suffix=.yml)
-python3 - "$batch" "$inventory"/candidates/*.yml > "$candidates" <<'EOF'
-import sys, yaml
-batch, paths = sys.argv[1], sys.argv[2:]
-chosen = []
-for path in paths:
-    with open(path, encoding="utf-8") as handle:
-        for fqdn, candidate in yaml.load(handle, Loader=yaml.BaseLoader).items():
-            if candidate["raw_node_batch"] == batch:
-                chosen.append({"address": candidate["address"], "fingerprint": candidate["fingerprint"]})
-                print(f"# {fqdn}", file=sys.stderr)
-print(yaml.safe_dump({"admit_candidates": chosen}, sort_keys=False), end="")
-EOF
-cat "$candidates"
-```
-
-Output example:
-
-```text
-# dev.example.org
-admit_candidates:
-- address: 10.0.0.21
-  fingerprint: SHA256:EXAMPLEexampleEXAMPLEexampleEXAMPLEexample0
-```
-
-Admit only candidates whose fingerprint you compared at the console. Remove any other from the file first.
-
-### Run admission
-
-From the uc-controller checkout, with the client inventory's raw stage and its onboard stage, and the batch password in `~/.secrets/uc/fleet/batches/raw-YYYY-MM-DD-NN.yml`, in the same shell as the step above, so `$batch` and `$candidates` are set. Admission logs in as the initial user with the client's key, `onboard_ssh_private_key_file`, and offers only that key, with `IdentitiesOnly=yes`. If the key has a passphrase, it must be in the agent. Check, and load it if it is not listed, as [Set Up a Client](0-set-up-a-client.md#make-the-clients-ssh-key) shows:
+From the uc-controller checkout, with the client inventory's raw stage and the onboard stage of the environment the nodes are for, and the batch password in `~/.secrets/uc/fleet/batches/raw-YYYY-MM-DD-NN.yml`. Admission logs in as the initial user with the client's key, `onboard_ssh_private_key_file`, and offers only that key, with `IdentitiesOnly=yes`. If the key has a passphrase, it must be in the agent. Check, and load it if it is not listed, as [Set Up a Client](0-set-up-a-client.md#make-the-clients-ssh-key) shows:
 
 ```sh
 ssh-add -l | grep example-org-raw-initial-id_ed25519 || ssh-add -t 1h ~/.ssh/example-org-raw-initial-id_ed25519
+batch=raw-YYYY-MM-DD-NN   # the batch the node definitions name
 cd ~/uc-controller
 ansible-playbook $(scripts/inventory-args ~/.private/uc/example-org/uc-inventory raw onboard/dev) \
-  ingress/playbooks/05_admit.yml -e admit_batch_id="$batch" -e @"$candidates"
-rm "$candidates"
+  ingress/playbooks/05_admit.yml -e admit_batch_id="$batch" -e admit_from_candidates=true
 cd -
 ```
 
-Admission scans the node's host keys, reads its confirmation as the initial user with the controller's key, checks it, admits it only when the keys and the console fingerprint agree, writes it to `raw/admitted.yml` and `ssh/known_hosts`, and confirms a become with the batch password. It ends with one line per candidate, and exits 0 when every candidate was admitted or is known:
+Admit only a batch whose candidates you compared at the console. Admission refuses a candidate built for another environment than the run's onboard stage before contacting it, checks each node's host keys and confirmation against its candidate, and never changes `candidates/`. It ends with one line per candidate, and exits 0 when every candidate was admitted or is known:
 
 ```text
 TASK [Report every candidate] **************************************************
 ok: [localhost] =>
     msg:
-    - '10.0.0.21: admitted dev - dev is new on every count'
+    - '10.0.0.21: admitted dev.example.org - dev.example.org is new on every count'
 ```
 
-Admission names the node by its hostname, `dev`, not by its fully qualified domain name as the candidate does: `raw/admitted.yml` gains a host `dev`, with its address, port, contract, baseline, machine ID, MAC addresses, batch and the time of admission, and `ssh/known_hosts` gains its three host keys under `dev`. Check that the ED25519 key there is the one you compared at the console, then commit both:
+The node is admitted under its fully qualified domain name, as the candidate names it: `raw/admitted.yml` gains a host `dev.example.org`, and `ssh/known_hosts` its three host keys under that name. Check that the ED25519 key there is the one you compared at the console, then commit both:
 
 ```sh
 cd ~/.private/uc/example-org/uc-inventory
@@ -214,11 +178,7 @@ UC_CONTROLLER=~/uc-controller git commit -m "Admit dev.example.org, batch raw-YY
 cd -
 ```
 
-A candidate admission refuses is uc-controller's rejection, which its own log entry records.
-
-### This will change
-
-The raw node handoff design has admission read the candidates of one batch from `candidates/` itself, refuse a candidate whose `node_label` does not belong to the run's environment, and never change `candidates/`. When it does, the conversion above goes away, and this section changes with it.
+A candidate admission refuses is uc-controller's rejection, which its own log entry records. uc-controller before 0.2.0 took its candidates as `admit_candidates`, a list made from `candidates/` by hand. 0.2.0 refuses that list, with a message naming `admit_from_candidates`.
 
 ## When a node is rejected
 
@@ -304,6 +264,7 @@ Leave the rejection files where they are. They are the record of what happened, 
 
 | Version | Date | Change |
 | :-- | :-- | :-- |
+| 0.1.4 | 2026-11-27 | Admission reads `candidates/` itself, from uc-controller 0.2.0, with `admit_from_candidates=true`, and names the node by its fully qualified domain name. The conversion to `admit_candidates`, which 0.2.0 refuses, and This will change are gone. The section points to uc-controller's Admit and Onboard guide. Found in uc-controller's handover work |
 | 0.1.3 | 2026-11-27 | From phase two's run: review the candidate with `git diff --cached` after `git add`, since plain `git diff` shows nothing for a new file; a node definition committed earlier is no change; `UC_CONTROLLER` only on the commit; check the agent before `ssh-add`; admission's report, that it names the node by its hostname, what it writes, and the commit of `raw/admitted.yml` and `ssh/known_hosts`; how to leave a rejected node on Incus |
 | 0.1.2 | 2026-11-27 | A rejection removes the candidate from the working tree even when it was committed, so `git status` shows a deletion, and committing it keeps the client inventory saying what the fleet wants |
 | 0.1.1 | 2026-11-27 | Batch names in commands are `raw-YYYY-MM-DD-NN`, since `raw-1970-01-01-01` is reserved for documents and tests, and admission takes the batch from `$batch`. Load the client's key before admission |

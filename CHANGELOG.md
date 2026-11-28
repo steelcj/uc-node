@@ -17,7 +17,7 @@ To be released as 0.3.0. 0.3.0 cannot read 0.2.0's node definitions, and has no 
 - The candidate: the build writes `<client inventory>/candidates/<fqdn>.yml`, with the fields of the raw node handoff design, and prints the ED25519 fingerprint and the command to compare it at the console.
 - Rejections: `plugins/callback/uc_reject.py` writes one entry to the client log, `logs/rejected/` beside the client inventory, when the build cannot secure a node, and removes the node's candidate.
 - `tests/`, run with `python3 tests/run_tests.py`: the lookup, `new-batch`, `new-node`, `scripts/build`, the check play, the templates, and the rejection callback.
-- The guides Set Up a Client and Hand Over to the Fleet.
+- The guides Set Up a Client and Hand Over to the Fleet. Hand Over to the Fleet admits with uc-controller 0.2.0's `admit_from_candidates=true`.
 
 ### Changed
 
